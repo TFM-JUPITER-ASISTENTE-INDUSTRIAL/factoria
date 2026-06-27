@@ -1,17 +1,34 @@
 import logging
 import time
 
-from src.logger.logger import Logger
+from src.domain.machine import Machine
+
+logger = logging.getLogger(__name__)
+
+machine_names = [
+    "Turbine-A",
+    "Compressor-B",
+    "Robotic-Harm-C"
+    "Transport-D"
+]
 
 class App:
     def __init__(self):
         self.running = True
-        self.logger = Logger(level=logging.INFO)
+        self.ticks = 0
+        self.machines = [Machine(name) for name in machine_names]
+
     def run(self):
-        self.logger.log_info(msg="FactorIA start")
+        logger.info(msg="FactorIA start")
         while self.running:
-            self.logger.log_alert(msg="FactorIA alert")
             time.sleep(1)
+            self.update()
+
+    def update(self):
+        self.ticks += 1
+
+        if self.ticks % 60 == 0:
+            logger.info(msg=f"FactorIA started after {self.ticks // 60} minutes")
 
     def stop(self):
         self.running = False
