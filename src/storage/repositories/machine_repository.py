@@ -47,6 +47,14 @@ class MachineRepository:
                       .first())
         if machine_db is None:
             return None
+        return self._to_domain(machine_db)
+
+    def list_all(self) -> list[Machine]:
+        all_machines_db = self.session.query(MachineORM).all()
+        return [self._to_domain(machine_db) for machine_db in all_machines_db]
+
+    def _to_domain(self, machine_db: MachineORM) -> Machine:
+        """ Convert MachineORM to Machine """
         sensors = [
             SensorFactory.create_sensor(sensor.name)
             for sensor in machine_db.plc.sensors

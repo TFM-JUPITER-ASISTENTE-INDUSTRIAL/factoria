@@ -1,9 +1,13 @@
 import logging
 import time
 
+from sqlalchemy.orm import Session
+
 from src.domain.machine import Machine
 from src.domain.plc import PLC
 from src.domain.sensor import NeumaticSensor, ElectricSensor, SoftwareSensor
+from src.storage.repositories import machine_repository
+from src.storage.repositories.machine_repository import MachineRepository
 
 logger = logging.getLogger(__name__)
 
@@ -16,23 +20,11 @@ machine_names = [
 
 
 class App:
-    def __init__(self):
+    def __init__(self, session: Session):
         self.running = True
         self.ticks = 0
-        self.machines = [
-            Machine(
-                name="Turbine-A",
-                plc=PLC(sensors=[NeumaticSensor()])),
-            Machine(
-                name="Compressor-B",
-                plc=PLC(sensors=[NeumaticSensor(), ElectricSensor()])),
-            Machine(
-                name="Robotic-Harm-C",
-                plc=PLC(sensors=[NeumaticSensor(), ElectricSensor(), SoftwareSensor()])),
-            Machine(
-                name="Transport-D",
-                plc=PLC(sensors=[ElectricSensor(), SoftwareSensor()]))
-        ]
+        repo = MachineRepository(session=session)
+        self.machines = repo.list_all()
 
     def run(self):
         logger.info(msg="FactorIA start")
