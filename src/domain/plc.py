@@ -6,6 +6,9 @@ class PLC:
         self.sensors = sensors if sensors is not None else []
         self.error_codes = {sensor.name: [] for sensor in self.sensors}
 
+    def add_sensors(self, sensors: list[Sensor]):
+        self.sensors.extend(sensors)
+
     def monitor_plc(self):
         has_new_error = False
         for sensor in self.sensors:

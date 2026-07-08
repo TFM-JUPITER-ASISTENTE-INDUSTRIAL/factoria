@@ -49,3 +49,16 @@ class SoftwareSensor(Sensor):
                 "SOFTWARE-003"
             ]
         )
+
+class SensorFactory:
+    @staticmethod
+    def create_sensor(name: str) -> Sensor:
+        """ Create sensor correct instance """
+        if name == "Neumatic Sensor":
+            return NeumaticSensor()
+        elif name == "Electric Sensor":
+            return ElectricSensor()
+        elif name == "Software PLC":
+            return SoftwareSensor()
+        else:
+            raise ValueError(f"Unknown sensor type: {name}")
