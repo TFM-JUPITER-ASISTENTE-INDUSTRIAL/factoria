@@ -1,5 +1,5 @@
 from src.Exceptions.plc_exception import PLCException
-from src.domain.sensors import Sensor
+from src.domain.sensor import Sensor
 
 class PLC:
     def __init__(self, sensors: list[Sensor] = None):

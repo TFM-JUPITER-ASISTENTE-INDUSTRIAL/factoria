@@ -2,8 +2,8 @@ import logging
 import time
 
 from src.domain.machine import Machine
-from src.domain.plcs import PLC
-from src.domain.sensors import NeumaticSensor, ElectricSensor, SoftwareSensor
+from src.domain.plc import PLC
+from src.domain.sensor import NeumaticSensor, ElectricSensor, SoftwareSensor
 
 logger = logging.getLogger(__name__)
 

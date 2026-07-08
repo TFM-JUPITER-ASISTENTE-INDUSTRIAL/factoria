@@ -2,7 +2,7 @@ import logging
 from enum import Enum
 
 from src.Exceptions.plc_exception import PLCException
-from src.domain.plcs import PLC
+from src.domain.plc import PLC
 
 logger = logging.getLogger(__name__)
 
