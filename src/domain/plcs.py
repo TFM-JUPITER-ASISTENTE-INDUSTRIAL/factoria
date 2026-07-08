@@ -11,6 +11,9 @@ class PLC:
         if random.random() < self.failure_probability:
             return random.choice(self.error_codes) if self.error_codes else "ERR-GENERIC"
         return None
+    # El plc tendrá distintos sensores dentro de un unico PLC
+    # Los errores tendrán un grade de gravedad INFO. WARNING. ERROR
+    # Mantener histórico de errores de una máquina.
 
 class NeumaticPLC(PLC):
     def __init__(self):
