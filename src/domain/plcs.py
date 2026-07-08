@@ -1,57 +1,18 @@
-import random
-
+from src.Exceptions.plc_exception import PLCException
+from src.domain.sensors import Sensor
 
 class PLC:
-    def __init__(self, name: str, failure_probability: float, error_codes: list[str]):
-        self.name = name
-        self.failure_probability = failure_probability
-        self.error_codes = error_codes
+    def __init__(self, sensors: list[Sensor] = None):
+        self.sensors = sensors if sensors is not None else []
+        self.error_codes = {sensor.name: [] for sensor in self.sensors}
 
-    def check_sensors(self):
-        if random.random() < self.failure_probability:
-            return random.choice(self.error_codes) if self.error_codes else "ERR-GENERIC"
-        return None
-    # El plc tendrá distintos sensores dentro de un unico PLC
-    # Los errores tendrán un grade de gravedad INFO. WARNING. ERROR
-    # Mantener histórico de errores de una máquina.
-
-class NeumaticPLC(PLC):
-    def __init__(self):
-        super().__init__(
-            name="Neumatic PLC",
-            failure_probability=0.01,
-            error_codes=
-            [
-                "NEUMATIC-001",
-                "NEUMATIC-002",
-                "NEUMATIC-003"
-            ]
-        )
-
-class ElectricPLC(PLC):
-    def __init__(self):
-        super().__init__(
-            name="Electric PLC",
-            failure_probability=0.02,
-            error_codes=
-            [
-                "ELECTRIC-001",
-                "ELECTRIC-002",
-                "ELECTRIC-003"
-            ]
-        )
-
-class SoftwarePLC(PLC):
-    def __init__(self):
-        super().__init__(
-            name="Software PLC",
-            failure_probability=0.05,
-            error_codes=
-            [
-                "SOFTWARE-001",
-                "SOFTWARE-002",
-                "SOFTWARE-003"
-            ]
-        )
-
-
+    def monitor_plc(self):
+        has_new_error = False
+        for sensor in self.sensors:
+            error_code = sensor.check_sensor()
+            if error_code:
+                if error_code not in self.error_codes[sensor.name]:
+                    self.error_codes[sensor.name].append(error_code)
+                    has_new_error = True
+        if has_new_error:
+            raise PLCException("Se detectaron errores en los sensores del PLC", self.error_codes)
