@@ -7,14 +7,6 @@ from src.storage.repositories.machine_repository import MachineRepository
 
 logger = logging.getLogger(__name__)
 
-machine_names = [
-    "Turbine-A",
-    "Compressor-B",
-    "Robotic-Harm-C"
-    "Transport-D"
-]
-
-
 class App:
     def __init__(self, session: Session):
         self.running = True
