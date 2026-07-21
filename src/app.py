@@ -3,10 +3,6 @@ import time
 
 from sqlalchemy.orm import Session
 
-from src.domain.machine import Machine
-from src.domain.plc import PLC
-from src.domain.sensor import NeumaticSensor, ElectricSensor, SoftwareSensor
-from src.storage.repositories import machine_repository
 from src.storage.repositories.machine_repository import MachineRepository
 
 logger = logging.getLogger(__name__)
