@@ -1,7 +1,14 @@
 import random
 
 class Sensor:
-    def __init__(self, name: str, failure_probability: float, error_codes: list[str]):
+    def __init__(
+            self,
+            name: str,
+            failure_probability: float,
+            error_codes: list[str],
+            sensor_id: int | None = None
+    ):
+        self.sensor_id = sensor_id
         self.name = name
         self.failure_probability = failure_probability
         self.error_codes = error_codes
@@ -12,8 +19,9 @@ class Sensor:
         return None
 
 class NeumaticSensor(Sensor):
-    def __init__(self):
+    def __init__(self, sensor_id: int | None = None):
         super().__init__(
+            sensor_id = sensor_id,
             name="Neumatic Sensor",
             failure_probability=0.01,
             error_codes=
@@ -25,8 +33,9 @@ class NeumaticSensor(Sensor):
         )
 
 class ElectricSensor(Sensor):
-    def __init__(self):
+    def __init__(self, sensor_id: int | None = None):
         super().__init__(
+            sensor_id = sensor_id,
             name="Electric Sensor",
             failure_probability=0.02,
             error_codes=
@@ -38,8 +47,9 @@ class ElectricSensor(Sensor):
         )
 
 class SoftwareSensor(Sensor):
-    def __init__(self):
+    def __init__(self, sensor_id: int | None = None):
         super().__init__(
+            sensor_id = sensor_id,
             name="Software PLC",
             failure_probability=0.05,
             error_codes=
@@ -52,13 +62,13 @@ class SoftwareSensor(Sensor):
 
 class SensorFactory:
     @staticmethod
-    def create_sensor(name: str) -> Sensor:
+    def create_sensor(name: str, sensor_id: int | None = None) -> Sensor:
         """ Create sensor correct instance """
         if name == "Neumatic Sensor":
-            return NeumaticSensor()
+            return NeumaticSensor(sensor_id = sensor_id)
         elif name == "Electric Sensor":
-            return ElectricSensor()
+            return ElectricSensor(sensor_id = sensor_id)
         elif name == "Software PLC":
-            return SoftwareSensor()
+            return SoftwareSensor(sensor_id = sensor_id)
         else:
             raise ValueError(f"Unknown sensor type: {name}")
