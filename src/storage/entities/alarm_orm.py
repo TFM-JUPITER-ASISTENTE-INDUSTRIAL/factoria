@@ -14,6 +14,7 @@ class AlarmORM(Base):
 
     id = Column(Integer, primary_key=True)
     sensor_id = Column(Integer, ForeignKey("sensors.id"), nullable=False)
+    machine_id = Column(Integer, ForeignKey("machines.id"), nullable=False)
     error_code = Column(String, nullable=False)
     status = Column(
         Enum(AlarmStatus, name="alarm_status"),

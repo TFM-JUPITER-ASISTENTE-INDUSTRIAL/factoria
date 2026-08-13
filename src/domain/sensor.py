@@ -12,11 +12,20 @@ class Sensor:
         self.name = name
         self.failure_probability = failure_probability
         self.error_codes = error_codes
+        self.current_errors : set[str] = set()
 
-    def check_sensor(self):
+    def check_sensor(self) -> set[str]:
         if random.random() < self.failure_probability:
-            return random.choice(self.error_codes) if self.error_codes else "ERR-GENERIC"
-        return None
+            code = random.choice(self.error_codes) if self.error_codes else 'GENERIC_ERROR'
+            if code is not None:
+                self.current_errors.add(code)
+        return self.current_errors
+
+    def fix(self, error_code: str | None = None):
+        if error_code is None:
+            self.current_errors.clear()
+        else:
+            self.current_errors.discard(error_code)
 
 class NeumaticSensor(Sensor):
     def __init__(self, sensor_id: int | None = None):
