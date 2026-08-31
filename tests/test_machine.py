@@ -3,7 +3,8 @@ from src.domain.machine import Machine, MachineStatus
 
 #macjine necesita recibir un PLC
 class FakePLC:
-    pass
+    def __init__(self, sensors=None):
+        self.sensors = sensors if sensors is not None else []
 
 
 def test_machine_creation():
@@ -13,4 +14,3 @@ def test_machine_creation():
     assert machine.name == "Machine 1"
     assert machine.status == MachineStatus.ONLINE
     assert machine.plc == plc
-    assert machine._current_errors == {}

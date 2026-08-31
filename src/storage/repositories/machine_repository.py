@@ -56,10 +56,10 @@ class MachineRepository:
     def _to_domain(self, machine_db: MachineORM) -> Machine:
         """ Convert MachineORM to Machine """
         sensors = [
-            SensorFactory.create_sensor(sensor.name)
+            SensorFactory.create_sensor(sensor.name, sensor.id)
             for sensor in machine_db.plc.sensors
         ]
-        plc = PLC(sensors=sensors)
+        plc = PLC(sensors=sensors, machine_id=machine_db.id)
         machine = Machine(name=machine_db.name, plc=plc)
         return machine
 
