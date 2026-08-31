@@ -3,7 +3,7 @@ from pydantic import BaseModel, ConfigDict
 from src.domain.alarm import AlarmStatus
 
 class AlarmResponse(BaseModel):
-    id: int | None = None
+    alarm_id: int | None = None
     sensor_id: int | None = None
     machine_id: int | None = None
     machine_name: str | None = None

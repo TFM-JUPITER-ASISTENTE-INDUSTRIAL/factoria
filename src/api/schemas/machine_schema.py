@@ -10,7 +10,7 @@ class SensorResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class MachineResponse(BaseModel):
-    id: int | None = None
+    machine_id: int | None = None
     name: str
     status: MachineStatus
     sensors: list[SensorResponse] = []

@@ -15,7 +15,9 @@ class Alarm:
             machine_id: int | None = None,
             triggered_at: datetime | None = None,
             resolved_at: datetime | None = None,
+            alarm_id: int | None = None,
     ):
+        self.alarm_id = alarm_id
         self.sensor_id = sensor_id
         self.error_code = error_code
         self.status = status
