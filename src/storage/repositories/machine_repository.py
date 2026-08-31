@@ -1,5 +1,6 @@
 from typing import Optional
 
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -40,17 +41,25 @@ class MachineRepository:
                 original_exception=e
             )
 
+    def get_by_id(self, machine_id: int) -> Optional[Machine]:
+        """ Get Machine by id from DB """
+        stmt = select(MachineORM).where(MachineORM.id == machine_id)
+        machine_db = self.session.execute(stmt).scalar_one_or_none()
+        if machine_db is None:
+            return None
+        return self._to_domain(machine_db)
+
     def get_by_name(self, name:str) -> Optional[Machine]:
         """ Get Machine by name from DB """
-        machine_db = (self.session.query(MachineORM)
-                      .filter(MachineORM.name == name)
-                      .first())
+        stmt = select(MachineORM).where(MachineORM.name == name)
+        machine_db = self.session.execute(stmt).scalar_one_or_none()
         if machine_db is None:
             return None
         return self._to_domain(machine_db)
 
     def list_all(self) -> list[Machine]:
-        all_machines_db = self.session.query(MachineORM).all()
+        stmt = select(MachineORM)
+        all_machines_db = self.session.execute(stmt).scalars().all()
         return [self._to_domain(machine_db) for machine_db in all_machines_db]
 
     def _to_domain(self, machine_db: MachineORM) -> Machine:
@@ -60,7 +69,7 @@ class MachineRepository:
             for sensor in machine_db.plc.sensors
         ]
         plc = PLC(sensors=sensors, machine_id=machine_db.id)
-        machine = Machine(name=machine_db.name, plc=plc)
+        machine = Machine(machine_id=machine_db.id, name=machine_db.name, plc=plc)
         return machine
 
 
