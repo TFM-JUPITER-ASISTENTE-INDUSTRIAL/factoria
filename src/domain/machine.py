@@ -3,6 +3,7 @@ from enum import Enum
 
 from src.domain.alarm import Alarm
 from src.domain.plc import PLC
+from src.domain.sensor import Sensor
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,10 @@ class Machine:
     def status(self) -> MachineStatus:
         has_errors = any(sensor.current_errors for sensor in self.plc.sensors)
         return MachineStatus.ERROR if has_errors else MachineStatus.ONLINE
+
+    @property
+    def sensors(self) -> list[Sensor]:
+        return self.plc.sensors if self.plc else []
 
     def log_status(self):
         logger.info(f"Machine {self.name} is {self.status.value}")
