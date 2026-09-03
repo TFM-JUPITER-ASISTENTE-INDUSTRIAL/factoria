@@ -147,38 +147,53 @@ POSTGRES_DB=factoria
 
 Ejecuta estos comandos desde la raíz del proyecto para gestionar el ciclo de vida del ecosistema:
 
-### 1. Levantar todo el ecosistema (Migraciones + Seeds + Simulador + API)
-Los contenedores esperarán a que PostgreSQL esté listo, aplicarán las migraciones de Alembic, poblarán la base de datos si está vacía, y levantarán el simulador y la API en paralelo:
+### 1. Crear la configuración local
+
+El archivo `.env` no se descarga desde GitHub porque contiene la configuración local de cada equipo. Créalo a partir de la plantilla versionada:
 
 ```bash
-docker-compose up --build -d
+cp .env.example .env
 ```
 
-### 2. Ver logs en tiempo real
+Revisa sus valores antes de continuar y no subas `.env` al repositorio.
+
+### 2. Levantar todo el ecosistema (Migraciones + Seed + Simulador + API)
+
+Los contenedores esperarán a que PostgreSQL esté listo. El servicio `simulator` aplicará las migraciones de Alembic, sincronizará el catálogo de máquinas y alarmas mediante el seed y, por último, iniciará la simulación:
+
+```bash
+docker compose up --build -d
+```
+
+> Ejecutar únicamente `docker compose up -d db` levanta PostgreSQL, pero no aplica las migraciones ni importa el catálogo. Para realizar la inicialización automática también debe arrancarse `simulator`.
+
+### 3. Ver logs en tiempo real
 ```bash
 # Ver todos los logs combinados
-docker-compose logs -f
+docker compose logs -f
 
 # Ver únicamente los logs de la API REST
-docker-compose logs -f api
+docker compose logs -f api
 
 # Ver únicamente los logs del simulador de planta
-docker-compose logs -f simulator
+docker compose logs -f simulator
 ```
 
-### 3. Detener el proyecto de forma segura
+### 4. Detener el proyecto de forma segura
 Mantiene intactos los datos almacenados en PostgreSQL:
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
-### 4. Reinicio limpio desde cero (Borrar Base de Datos)
+### 5. Reinicio limpio desde cero (Borrar Base de Datos)
 Para destruir los volúmenes, tablas y registros y reiniciar la simulación con datos vírgenes:
 
 ```bash
-docker-compose down -v
+docker compose down -v
 ```
+
+> **Atención:** `down -v` elimina todo el contenido de PostgreSQL. No debe utilizarse si se quieren conservar los datos.
 
 ---
 
@@ -207,9 +222,63 @@ export $(grep -v '^#' .env | xargs) && DATABASE_URL=postgresql+psycopg://$POSTGR
 ---
 
 ## 🌱 Semillas Iniciales (Seeds)
-Al arrancar por primera vez, el script `src/storage/seed/seed.py` inserta automáticamente las 4 máquinas base de la factoría con sus configuraciones de sensores:
 
-* **`Turbine-A`**: 1 Sensor Neumático (Probabilidad de fallo: `1%`).
-* **`Compressor-B`**: 1 Sensor Neumático (`1%`) y 1 Sensor Eléctrico (`2%`).
-* **`Robotic-Harm-C`**: 1 Sensor Neumático (`1%`), 1 Sensor Eléctrico (`2%`) y 1 PLC de Software (`5%`).
-* **`Transport-D`**: 1 Sensor Eléctrico (`2%`) y 1 PLC de Software (`5%`).
+Al clonar el repositorio, PostgreSQL todavía no contiene datos. El proyecto incluye las migraciones, cinco catálogos CSV en `data/alarm_catalogs/` y un seed que importa automáticamente:
+
+| Máquina | Identificador externo | Definiciones de alarma |
+| :--- | :--- | ---: |
+| Denester | `DENESTER-01` | 30 |
+| Encajadora | `ENCAJADORA-01` | 30 |
+| Estuchadora | `ESTUCHADORA-01` | 35 |
+| Serializadora | `SERIALIZADORA-01` | 35 |
+| Termoformadora | `TERMOFORMADORA-01` | 35 |
+| **Total** | **5 máquinas** | **165** |
+
+El servicio `simulator` ejecuta automáticamente esta secuencia al arrancar:
+
+```text
+alembic upgrade head
+        ↓
+python -m src.storage.seed.seed
+        ↓
+main.py
+```
+
+El seed es **idempotente**: puede ejecutarse varias veces. Crea los registros que faltan, actualiza los datos modificados y no duplica las definiciones que ya existen.
+
+### Ejecutar la inicialización manualmente
+
+Si solo se había levantado PostgreSQL, pueden aplicarse las migraciones y el seed con:
+
+```bash
+docker compose run --rm simulator uv run alembic upgrade head
+
+docker compose run --rm simulator \
+  uv run python -m src.storage.seed.seed
+```
+
+### Verificar la importación
+
+Revisa primero la salida del seed:
+
+```bash
+docker compose logs simulator
+```
+
+Después consulta los recuentos directamente en PostgreSQL:
+
+```bash
+docker compose exec db sh -c \
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "SELECT COUNT(*) FROM machines;
+      SELECT COUNT(*) FROM alarm_definitions;"'
+```
+
+El resultado esperado es:
+
+```text
+machines: 5
+alarm_definitions: 165
+```
+
+Las comillas simples del comando son importantes: hacen que las variables se expandan dentro del contenedor y evitan errores como `role "root" does not exist`.
