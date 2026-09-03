@@ -39,6 +39,10 @@ class AlarmDefinitionORM(Base):
         "MachineORM",
         back_populates="alarm_definitions",
     )
+    alarm_events = relationship(
+        "AlarmORM",
+        back_populates="definition",
+    )
 
     __table_args__ = (
         UniqueConstraint(
