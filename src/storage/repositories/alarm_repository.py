@@ -120,36 +120,36 @@ class AlarmRepository:
 
         return self._to_domain(alarm_db)
 
-def resolve_active_by_definition(
-    self,
-    alarm_definition_id: int,
-) -> Optional[Alarm]:
-    stmt = select(AlarmORM).where(
-        AlarmORM.alarm_definition_id
-        == alarm_definition_id,
-        AlarmORM.status == AlarmStatus.ACTIVE,
-    )
-
-    alarm_db = self.session.execute(
-        stmt
-    ).scalar_one_or_none()
-
-    if alarm_db is None:
-        return None
-
-    alarm_db.status = AlarmStatus.SOLVED
-    alarm_db.resolved_at = datetime.now(timezone.utc)
-
-    try:
-        self.session.commit()
-        self.session.refresh(alarm_db)
-        return self._to_domain(alarm_db)
-    except SQLAlchemyError as error:
-        self.session.rollback()
-        raise DatabaseException(
-            message=(
-                "Error al resolver la alarma activa "
-                f"de la definición {alarm_definition_id}."
-            ),
-            original_exception=error,
+    def resolve_active_by_definition(
+        self,
+        alarm_definition_id: int,
+    ) -> Optional[Alarm]:
+        stmt = select(AlarmORM).where(
+            AlarmORM.alarm_definition_id
+            == alarm_definition_id,
+            AlarmORM.status == AlarmStatus.ACTIVE,
         )
+
+        alarm_db = self.session.execute(
+            stmt
+        ).scalar_one_or_none()
+
+        if alarm_db is None:
+            return None
+
+        alarm_db.status = AlarmStatus.SOLVED
+        alarm_db.resolved_at = datetime.now(timezone.utc)
+
+        try:
+            self.session.commit()
+            self.session.refresh(alarm_db)
+            return self._to_domain(alarm_db)
+        except SQLAlchemyError as error:
+            self.session.rollback()
+            raise DatabaseException(
+                message=(
+                    "Error al resolver la alarma activa "
+                    f"de la definición {alarm_definition_id}."
+                ),
+                original_exception=error,
+            )
