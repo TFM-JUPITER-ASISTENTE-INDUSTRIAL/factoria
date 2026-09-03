@@ -3,12 +3,6 @@ from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Index, tex
 from src.domain.alarm import AlarmStatus
 from src.storage.connectors.postgresql import Base
 
-Index("unique_alarms_sensor_code_active",
-      "sensor_id",
-      "error_code",
-      unique=True,
-      postgresql_where= text(f"status = '{AlarmStatus.ACTIVE.value}'"))
-
 class AlarmORM(Base):
     __tablename__ = "alarms"
 
@@ -23,3 +17,15 @@ class AlarmORM(Base):
     )
     triggered_at = Column(DateTime(timezone=True), nullable=False)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index(
+            "unique_alarms_sensor_code_active",
+            "sensor_id",
+            "error_code",
+            unique=True,
+            postgresql_where=text(
+                f"status = '{AlarmStatus.ACTIVE.value}'"
+            ),
+        ),
+    )
