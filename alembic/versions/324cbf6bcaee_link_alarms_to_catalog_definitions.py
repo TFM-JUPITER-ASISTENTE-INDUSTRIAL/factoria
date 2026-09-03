@@ -27,8 +27,13 @@ def upgrade() -> None:
                existing_type=sa.INTEGER(),
                nullable=True)
     op.create_index('unique_active_alarm_definition', 'alarms', ['alarm_definition_id'], unique=True, postgresql_where=sa.text("status = 'ACTIVE' AND alarm_definition_id IS NOT NULL"))
-    op.create_foreign_key(None, 'alarms', 'alarm_definitions', ['alarm_definition_id'], ['id'])
-    # ### end Alembic commands ###
+    op.create_foreign_key(
+        None,
+        "alarms",
+        "alarm_definitions",
+        ["alarm_definition_id"],
+        ["id"],
+    )    # ### end Alembic commands ###
 
 
 def downgrade() -> None:
