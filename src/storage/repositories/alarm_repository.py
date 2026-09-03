@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import text, select, func
+from sqlalchemy import select, func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
@@ -26,15 +26,11 @@ class AlarmRepository:
                 "status" : a.status.value,
                 "triggered_at" : a.triggered_at,
                 "resolved_at" : a.resolved_at,
+                "alarm_definition_id" : a.alarm_definition_id,
+                "raw_payload" : a.raw_payload,
             }
             for a in alarms
-        ]).on_conflict_do_nothing(
-            index_elements=[
-                "sensor_id",
-                "error_code",
-            ],
-            index_where=text(f"status = '{AlarmStatus.ACTIVE.value}'")
-        ).returning(AlarmORM.id)
+        ]).on_conflict_do_nothing().returning(AlarmORM.id)
 
         try:
             result = self.session.execute(stmt)
@@ -101,4 +97,59 @@ class AlarmRepository:
             triggered_at=alarm_db.triggered_at,
             resolved_at=alarm_db.resolved_at,
             alarm_id=alarm_db.id,
+            alarm_definition_id=alarm_db.alarm_definition_id,
+            raw_payload=alarm_db.raw_payload,
+        )
+
+    def get_active_by_definition(
+        self,
+        alarm_definition_id: int,
+    ) -> Optional[Alarm]:
+        stmt = select(AlarmORM).where(
+            AlarmORM.alarm_definition_id
+            == alarm_definition_id,
+            AlarmORM.status == AlarmStatus.ACTIVE,
+        )
+
+        alarm_db = self.session.execute(
+            stmt
+        ).scalar_one_or_none()
+
+        if alarm_db is None:
+            return None
+
+        return self._to_domain(alarm_db)
+
+def resolve_active_by_definition(
+    self,
+    alarm_definition_id: int,
+) -> Optional[Alarm]:
+    stmt = select(AlarmORM).where(
+        AlarmORM.alarm_definition_id
+        == alarm_definition_id,
+        AlarmORM.status == AlarmStatus.ACTIVE,
+    )
+
+    alarm_db = self.session.execute(
+        stmt
+    ).scalar_one_or_none()
+
+    if alarm_db is None:
+        return None
+
+    alarm_db.status = AlarmStatus.SOLVED
+    alarm_db.resolved_at = datetime.now(timezone.utc)
+
+    try:
+        self.session.commit()
+        self.session.refresh(alarm_db)
+        return self._to_domain(alarm_db)
+    except SQLAlchemyError as error:
+        self.session.rollback()
+        raise DatabaseException(
+            message=(
+                "Error al resolver la alarma activa "
+                f"de la definición {alarm_definition_id}."
+            ),
+            original_exception=error,
         )

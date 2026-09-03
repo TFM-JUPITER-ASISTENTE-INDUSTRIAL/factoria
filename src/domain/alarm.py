@@ -16,6 +16,8 @@ class Alarm:
             triggered_at: datetime | None = None,
             resolved_at: datetime | None = None,
             alarm_id: int | None = None,
+            alarm_definition_id: int | None = None,
+            raw_payload: dict[str, object] | None = None,
     ):
         self.alarm_id = alarm_id
         self.sensor_id = sensor_id
@@ -24,3 +26,5 @@ class Alarm:
         self.machine_id = machine_id
         self.triggered_at = triggered_at or datetime.now(timezone.utc)
         self.resolved_at = resolved_at
+        self.alarm_definition_id = alarm_definition_id
+        self.raw_payload = raw_payload
