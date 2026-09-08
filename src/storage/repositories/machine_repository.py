@@ -24,7 +24,7 @@ class MachineRepository:
         machine_db.plc = PLCORM(sensors=[
             SensorORM(
                 name=sensor.name,
-                tag_id=sensor.tag_id,
+                sensor_type=sensor.sensor_type,
                 failure_probability=sensor.failure_probability,
                 error_codes=sensor.error_codes,
             )
@@ -84,7 +84,7 @@ class MachineRepository:
             sensor = Sensor(
                 name=stored.name,
                 sensor_id=stored.id,
-                tag_id=stored.tag_id,
+                sensor_type=stored.sensor_type,
                 failure_probability=stored.failure_probability or 0.0,
                 error_codes=stored.error_codes or [],
                 definitions=definitions,

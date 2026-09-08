@@ -1,5 +1,5 @@
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from src.domain.alarm_definition import AlarmDefinition
 from src.storage.entities.alarm_definition_orm import AlarmDefinitionORM
@@ -11,7 +11,7 @@ class AlarmDefinitionRepository:
         self.session = session
 
     def get_by_external_id(self, external_alarm_id: str) -> AlarmDefinition | None:
-        row = self.session.scalar(select(AlarmDefinitionORM).where(
+        row = self.session.scalar(select(AlarmDefinitionORM).options(joinedload(AlarmDefinitionORM.sensor)).where(
             AlarmDefinitionORM.external_alarm_id == external_alarm_id,
         ))
         return self._to_domain(row) if row is not None else None
@@ -19,7 +19,7 @@ class AlarmDefinitionRepository:
     def get_by_machine_and_code(self, machine_external_id: str,
                                alarm_code: str) -> AlarmDefinition | None:
         row = self.session.scalar(
-            select(AlarmDefinitionORM).join(AlarmDefinitionORM.machine).where(
+            select(AlarmDefinitionORM).options(joinedload(AlarmDefinitionORM.sensor)).join(AlarmDefinitionORM.machine).where(
                 MachineORM.external_id == machine_external_id,
                 AlarmDefinitionORM.alarm_code == alarm_code,
             )
@@ -29,7 +29,7 @@ class AlarmDefinitionRepository:
     def list_by_machine_and_tag(self, machine_external_id: str,
                                 tag_id: str) -> list[AlarmDefinition]:
         rows = self.session.scalars(
-            select(AlarmDefinitionORM).join(AlarmDefinitionORM.machine).where(
+            select(AlarmDefinitionORM).options(joinedload(AlarmDefinitionORM.sensor)).join(AlarmDefinitionORM.machine).where(
                 MachineORM.external_id == machine_external_id,
                 AlarmDefinitionORM.tag_id == tag_id,
             ).order_by(AlarmDefinitionORM.id)
@@ -38,7 +38,7 @@ class AlarmDefinitionRepository:
 
     def list_all(self, machine_id: int | None = None,
                  sensor_id: int | None = None) -> list[AlarmDefinition]:
-        stmt = select(AlarmDefinitionORM).order_by(AlarmDefinitionORM.id)
+        stmt = select(AlarmDefinitionORM).options(joinedload(AlarmDefinitionORM.sensor)).order_by(AlarmDefinitionORM.id)
         if machine_id is not None:
             stmt = stmt.where(AlarmDefinitionORM.machine_id == machine_id)
         if sensor_id is not None:
@@ -57,4 +57,5 @@ class AlarmDefinitionRepository:
             severity=row.severity,
             sensor_id=row.sensor_id,
             component=row.component,
+            sensor_type=row.sensor.sensor_type if row.sensor else None,
         )

@@ -1,3 +1,8 @@
+from src.domain.alarm import Alarm
+from src.storage.repositories.alarm_definition_repository import AlarmDefinitionRepository
+from src.storage.repositories.alarm_repository import AlarmRepository
+
+
 class AlarmEventService:
     def __init__(self, definition_repository: AlarmDefinitionRepository,
                  alarm_repository: AlarmRepository):

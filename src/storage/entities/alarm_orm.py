@@ -5,6 +5,7 @@ from sqlalchemy.orm import relationship
 from src.domain.alarm import AlarmStatus
 from src.storage.connectors.postgresql import Base
 
+
 class AlarmORM(Base):
     __tablename__ = "alarms"
 

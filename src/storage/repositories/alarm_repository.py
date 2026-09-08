@@ -114,6 +114,7 @@ class AlarmRepository:
             machine_name=row.machine.name if row.machine else None,
             machine_external_id=row.machine.external_id if row.machine else None,
             sensor_name=row.sensor.name if row.sensor else None,
+            sensor_type=row.sensor.sensor_type if row.sensor else None,
             external_alarm_id=definition.external_alarm_id if definition else None,
             alarm_name=definition.alarm_name if definition else None,
             tag_id=definition.tag_id if definition else None,

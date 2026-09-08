@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from src.storage.importers.alarm_catalog_importer import load_catalog_rows
+from src.storage.importers.alarm_catalog_importer import load_catalog_rows, sensor_type_from_tag
 
 
 REQUIRED_COLUMNS = [
@@ -43,6 +43,13 @@ def test_real_catalogs_have_expected_size_and_machine_count():
 
     assert len(rows) == 165
     assert len({row.machine_id for row in rows}) == 5
+    assert len({(row.machine_id, sensor_type_from_tag(row.tag_id)) for row in rows}) == 81
+    denester_stack_codes = {
+        row.alarm_code for row in rows
+        if row.machine_id == "DENESTER-01"
+        and sensor_type_from_tag(row.tag_id) == "STACK"
+    }
+    assert denester_stack_codes == {"DEN-0004", "DEN-0005", "DEN-0021"}
 
 
 def test_importer_rejects_missing_required_column(tmp_path):

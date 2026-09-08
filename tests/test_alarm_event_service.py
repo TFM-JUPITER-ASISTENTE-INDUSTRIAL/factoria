@@ -47,6 +47,7 @@ class FakeAlarmRepository:
 def definition() -> AlarmDefinition:
     return AlarmDefinition(
         definition_id=27,
+        sensor_id=12,
         external_alarm_id="ALM-DEN-0001",
         machine_id=1,
         alarm_code="DEN-0001",
@@ -74,7 +75,7 @@ def test_activate_creates_catalog_linked_alarm(definition):
     assert len(alarms.saved) == 1
 
     event = alarms.saved[0]
-    assert event.sensor_id is None
+    assert event.sensor_id == definition.sensor_id
     assert event.machine_id == definition.machine_id
     assert event.alarm_definition_id == definition.definition_id
     assert event.error_code == definition.alarm_code
@@ -157,3 +158,20 @@ def test_clear_rejects_unknown_alarm():
 
 def test_alarm_repository_exposes_definition_resolution_method():
     assert hasattr(AlarmRepository, "resolve_active_by_definition")
+
+
+def test_activate_rejects_wrong_sensor(definition):
+    service = AlarmEventService(FakeDefinitionRepository(definition), FakeAlarmRepository())
+    with pytest.raises(ValueError, match="sensor no coincide"):
+        service.activate("DENESTER-01", "DEN-0001", sensor_id=999)
+
+
+def test_activate_rejects_unmapped_definition(definition):
+    from dataclasses import replace
+
+    service = AlarmEventService(
+        FakeDefinitionRepository(replace(definition, sensor_id=None)),
+        FakeAlarmRepository(),
+    )
+    with pytest.raises(ValueError, match="sin sensor"):
+        service.activate("DENESTER-01", "DEN-0001")

@@ -1,16 +1,18 @@
 import logging
-import time
+import math
 import os
 import random
 import time
+
 from sqlalchemy.orm import Session
 
-from src.domain.alarm import Alarm
+from src.services.alarm_event_service import AlarmEventService
+from src.storage.repositories.alarm_definition_repository import AlarmDefinitionRepository
 from src.storage.repositories.alarm_repository import AlarmRepository
 from src.storage.repositories.machine_repository import MachineRepository
-from storage.repositories.alarm_definition_repository import AlarmDefinitionRepository
 
 logger = logging.getLogger(__name__)
+
 
 class App:
     def __init__(
@@ -73,15 +75,16 @@ class App:
                 machine_id=machine.external_id,
                 alarm_code=alarm.error_code,
                 sensor_id=sensor.sensor_id,
-                tag_id=sensor.tag_id,
+                tag_id=alarm.tag_id,
                 raw_payload={"source": "simulator", "tick": self.ticks},
             )
             if created:
                 sensor.current_errors.add(alarm.error_code)
                 machine.has_active_alarms = True
                 logger.info(
-                    "ALARMA máquina=%s sensor=%s tag=%s código=%s",
-                    machine.external_id, sensor.sensor_id, sensor.tag_id, alarm.error_code,
+                    "ALARMA máquina=%s sensor=%s tipo=%s tag=%s código=%s",
+                    machine.external_id, sensor.sensor_id, sensor.sensor_type,
+                    alarm.tag_id, alarm.error_code,
                 )
             return created
         finally:

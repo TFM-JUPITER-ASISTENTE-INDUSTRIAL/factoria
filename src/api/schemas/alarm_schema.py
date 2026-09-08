@@ -1,6 +1,9 @@
 from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict
+
 from src.domain.alarm import AlarmStatus
+
 
 class AlarmResponse(BaseModel):
     alarm_id: int
@@ -9,6 +12,7 @@ class AlarmResponse(BaseModel):
     machine_name: str | None = None
     machine_external_id: str | None = None
     sensor_name: str | None = None
+    sensor_type: str | None = None
     alarm_definition_id: int | None = None
     external_alarm_id: str | None = None
     error_code: str
@@ -22,12 +26,14 @@ class AlarmResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class AlarmDefinitionResponse(BaseModel):
     definition_id: int
     external_alarm_id: str
     machine_id: int
     sensor_id: int | None = None
     alarm_code: str
+    sensor_type: str | None = None
     alarm_name: str
     tag_id: str
     component: str | None = None

@@ -2,32 +2,27 @@ import csv
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from src.storage.entities.alarm_definition_orm import (
-    AlarmDefinitionORM,
-)
+from src.storage.entities.alarm_definition_orm import AlarmDefinitionORM
 from src.storage.entities.machine_orm import MachineORM
 from src.storage.entities.plc_orm import PLCORM
 from src.storage.entities.sensor_orm import SensorORM
 
-
 REQUIRED_COLUMNS = {
-    "alarm_id",
-    "alarm_code",
-    "alarm_name",
-    "machine_id",
-    "machine_name",
-    "tag_id",
-    "severity",
+    "alarm_id", "alarm_code", "alarm_name", "machine_id",
+    "machine_name", "tag_id", "severity",
 }
+ALLOWED_SEVERITIES = {"ERROR", "CRITICAL_ERROR"}
 
-# Debes ampliar esta lista después de revisar todos los CSV.
-ALLOWED_SEVERITIES = {
-    "ERROR",
-    "CRITICAL_ERROR",
-}
+
+def sensor_type_from_tag(tag_id: str) -> str:
+    """Extrae el grupo anterior al nombre del fallo, sin una lista de tipos fija."""
+    parts = tag_id.strip().split(".")
+    if len(parts) < 3 or any(not part or part != part.strip() for part in parts):
+        raise ValueError(f"tag_id inválido: {tag_id!r}")
+    return parts[-2]
 
 
 @dataclass(frozen=True)
@@ -44,7 +39,6 @@ class AlarmCatalogRow:
     component: str | None = None
 
 
-#esta función carga y valida los archivos CSV de catálogo de alarmas, asegurando que no haya duplicados ni inconsistencias en los datos.
 def load_catalog_rows(directory: Path) -> list[AlarmCatalogRow]:
     files = sorted(directory.glob("*.csv"))
     if not files:
@@ -65,6 +59,7 @@ def load_catalog_rows(directory: Path) -> list[AlarmCatalogRow]:
                     raise ValueError(f"{path.name}:{line}: campos vacíos")
                 if values["severity"] not in ALLOWED_SEVERITIES:
                     raise ValueError(f"{path.name}:{line}: severity desconocida")
+                sensor_type_from_tag(values["tag_id"])
                 key = (values["machine_id"], values["alarm_code"])
                 if values["alarm_id"] in alarm_ids:
                     raise ValueError(f"{path.name}:{line}: alarm_id duplicado")
@@ -83,10 +78,6 @@ def load_catalog_rows(directory: Path) -> list[AlarmCatalogRow]:
     return rows
 
 
-
-
-
-#esta función obtiene o crea una máquina en la base de datos según el external_id y el nombre proporcionados. Si la máquina no existe, se crea una nueva entrada; si existe pero el nombre es diferente, se actualiza el nombre.
 def get_or_create_machine(session: Session, external_id: str, name: str):
     machine = session.scalar(select(MachineORM).where(MachineORM.external_id == external_id))
     if machine is None:
@@ -108,17 +99,17 @@ def get_or_create_machine(session: Session, external_id: str, name: str):
     return machine, created
 
 
-def get_or_create_sensor(session: Session, machine: MachineORM, tag_id: str):
+def get_or_create_sensor(session: Session, machine: MachineORM, sensor_type: str):
     sensor = session.scalar(select(SensorORM).where(
         SensorORM.owner_id == machine.plc.id,
-        SensorORM.tag_id == tag_id,
+        SensorORM.sensor_type == sensor_type,
     ))
     created = sensor is None
     if created:
         sensor = SensorORM(
             owner=machine.plc,
-            name=tag_id,
-            tag_id=tag_id,
+            name=sensor_type,
+            sensor_type=sensor_type,
             failure_probability=1.0,
             error_codes=[],
         )
@@ -127,7 +118,6 @@ def get_or_create_sensor(session: Session, machine: MachineORM, tag_id: str):
     return sensor, created
 
 
-#esta función inserta o actualiza una definición de alarma en la base de datos. Verifica si la definición ya existe por external_alarm_id o por la combinación de machine_id y alarm_code. Si existe, actualiza los campos si es necesario; si no, crea una nueva entrada. También maneja conflictos y asegura que no se cambien las relaciones existentes.
 def upsert_alarm_definition(session: Session, machine: MachineORM,
                             sensor: SensorORM, row: AlarmCatalogRow) -> str:
     by_id = session.scalar(select(AlarmDefinitionORM).where(
@@ -155,12 +145,22 @@ def upsert_alarm_definition(session: Session, machine: MachineORM,
             or definition.alarm_code != row.alarm_code
         ):
             raise ValueError(f"Identidad de alarma incompatible: {row.alarm_id}")
-        if definition.sensor_id is not None and (
-            definition.sensor_id != sensor.id or definition.tag_id != row.tag_id
-        ):
-            raise ValueError(
-                f"{row.alarm_id}: cambiar de sensor/tag requiere una migración explícita"
+        if definition.sensor_id is not None:
+            old_sensor = session.get(SensorORM, definition.sensor_id)
+            # Permite migrar exclusivamente la primera propuesta (sensor por tag completo).
+            previous_full_tag_sensor = (
+                old_sensor is not None
+                and old_sensor.sensor_type is None
+                and old_sensor.owner_id == machine.plc.id
+                and old_sensor.tag_id == row.tag_id == definition.tag_id
             )
+            if (
+                definition.tag_id != row.tag_id
+                or (definition.sensor_id != sensor.id and not previous_full_tag_sensor)
+            ):
+                raise ValueError(
+                    f"{row.alarm_id}: cambiar de sensor/tag requiere una migración explícita"
+                )
 
     values = {
         "alarm_name": row.alarm_name,
@@ -176,9 +176,6 @@ def upsert_alarm_definition(session: Session, machine: MachineORM,
     return "created" if created else ("updated" if changed else "unchanged")
 
 
-
-
-#esta función importa los catálogos de alarmas desde los archivos CSV en el directorio especificado. Valida los datos, crea o actualiza máquinas y definiciones de alarmas según sea necesario, y devuelve un resumen de la operación.
 def import_alarm_catalogs(session: Session, directory: Path) -> dict[str, int]:
     rows = load_catalog_rows(directory)
     result = {
@@ -194,7 +191,8 @@ def import_alarm_catalogs(session: Session, directory: Path) -> dict[str, int]:
             machines[row.machine_id] = machine
             result["machines_created"] += int(created)
         machine = machines[row.machine_id]
-        sensor, created = get_or_create_sensor(session, machine, row.tag_id)
+        sensor_type = sensor_type_from_tag(row.tag_id)
+        sensor, created = get_or_create_sensor(session, machine, sensor_type)
         result["sensors_created"] += int(created)
         status = upsert_alarm_definition(session, machine, sensor, row)
         result[f"definitions_{status}"] += 1
@@ -203,7 +201,7 @@ def import_alarm_catalogs(session: Session, directory: Path) -> dict[str, int]:
     # El simulador usa las relaciones, no este ARRAY como fuente independiente.
     for machine in machines.values():
         for sensor in machine.plc.sensors:
-            if sensor.tag_id is not None:
+            if sensor.sensor_type is not None:
                 sensor.error_codes = list(session.scalars(
                     select(AlarmDefinitionORM.alarm_code)
                     .where(AlarmDefinitionORM.sensor_id == sensor.id)
@@ -211,15 +209,25 @@ def import_alarm_catalogs(session: Session, directory: Path) -> dict[str, int]:
                 ))
     session.flush()
 
-    # Solo completar enlaces inequívocos de eventos YA vinculados a una definición.
-    # No tocar sensores existentes ni adivinar el origen de códigos antiguos.
+    # Completa eventos sin sensor y adapta los de la primera propuesta por tag.
+    # No adivina el origen de códigos antiguos sin definición.
     linked = session.execute(text("""
         UPDATE alarms AS event
         SET sensor_id = definition.sensor_id
         FROM alarm_definitions AS definition
         WHERE event.alarm_definition_id = definition.id
-          AND event.sensor_id IS NULL
           AND definition.sensor_id IS NOT NULL
+          AND (
+            event.sensor_id IS NULL
+            OR EXISTS (
+              SELECT 1 FROM sensors AS previous
+              JOIN plcs ON plcs.id = previous.owner_id
+              WHERE previous.id = event.sensor_id
+                AND previous.sensor_type IS NULL
+                AND previous.tag_id = definition.tag_id
+                AND plcs.owner_id = definition.machine_id
+            )
+          )
           AND event.machine_id = definition.machine_id
           AND event.error_code = definition.alarm_code
           AND (
@@ -237,55 +245,6 @@ def import_alarm_catalogs(session: Session, directory: Path) -> dict[str, int]:
     return result
 
 
-
-#esta función importa los catálogos de alarmas desde los archivos CSV en el directorio especificado. Valida los datos, crea o actualiza máquinas y definiciones de alarmas según sea necesario, y devuelve un resumen de la operación.
-def import_alarm_catalogs(
-    session: Session,
-    directory: Path,
-) -> dict[str, int]:
-    # Primero se leen y validan todos los archivos.
-    rows = load_catalog_rows(directory)
-
-    machines: dict[str, MachineORM] = {}
-
-    result = {
-        "files": len(list(directory.glob("*.csv"))),
-        "rows": len(rows),
-        "machines_created": 0,
-        "definitions_created": 0,
-        "definitions_updated": 0,
-        "definitions_unchanged": 0,
-    }
-
-    for row in rows:
-        machine = machines.get(row.machine_id)
-
-        if machine is None:
-            machine, created = get_or_create_machine(
-                session=session,
-                external_id=row.machine_id,
-                name=row.machine_name,
-            )
-
-            machines[row.machine_id] = machine
-
-            if created:
-                result["machines_created"] += 1
-
-        status = upsert_alarm_definition(
-            session=session,
-            machine=machine,
-            row=row,
-        )
-
-        result[f"definitions_{status}"] += 1
-
-    return result
-
-
-
-#este bloque de código permite ejecutar el script directamente desde la línea de comandos, proporcionando un directorio de archivos CSV y una opción de "dry-run" 
-# para validar los datos sin realizar cambios en la base de datos. Se encarga de manejar la sesión de la base de datos y mostrar un resumen del resultado de la importación.
 if __name__ == "__main__":
     import argparse
     from src.storage.connectors.postgresql import SessionLocal

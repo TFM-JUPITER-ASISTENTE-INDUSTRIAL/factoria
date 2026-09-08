@@ -1,8 +1,14 @@
-from src.domain.alarm import Alarm, AlarmStatus
+from src.domain.alarm import Alarm
 from src.domain.sensor import Sensor
 
+
 class PLC:
-    def __init__(self, sensors: list[Sensor] = None, machine_id: int | None = None):
+    def __init__(
+        self,
+        sensors: list[Sensor] | None = None,
+        machine_id: int | None = None,
+        plc_id: int | None = None,
+    ):
         self.sensors = list(sensors or [])
         self.machine_id = machine_id
         self.plc_id = plc_id
@@ -27,5 +33,7 @@ class PLC:
                 machine_id=self.machine_id,
                 alarm_definition_id=definition.definition_id,
                 error_code=definition.alarm_code,
+                tag_id=definition.tag_id,
+                sensor_type=sensor.sensor_type,
             )]
         raise ValueError(f"Sensor {sensor_id} no encontrado en el PLC")

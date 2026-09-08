@@ -7,17 +7,25 @@ from src.domain.sensor import Sensor
 
 logger = logging.getLogger(__name__)
 
+
 class MachineStatus(Enum):
     ONLINE = "ONLINE"
     ERROR = "ERROR"
     MAINTENANCE = "MAINTENANCE"
 
+
 class Machine:
-    def __init__(self, name:str, plc:PLC, machine_id:int | None = None,external_id: str | None = None,has_active_alarms: bool = False,):
+    def __init__(
+        self, name: str, plc: PLC,
+        machine_id: int | None = None,
+        external_id: str | None = None,
+        has_active_alarms: bool = False,
+    ):
         self.name = name
         self.plc = plc
         self.machine_id = machine_id
         self.external_id = external_id
+        # Snapshot de BD: incluye alarmas antiguas sin sensor.
         self.has_active_alarms = has_active_alarms
 
     def monitor(self, sensor_id: int, rng=None) -> list[Alarm]:

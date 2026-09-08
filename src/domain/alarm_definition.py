@@ -12,3 +12,4 @@ class AlarmDefinition:
     severity: str
     sensor_id: int | None = None
     component: str | None = None
+    sensor_type: str | None = None

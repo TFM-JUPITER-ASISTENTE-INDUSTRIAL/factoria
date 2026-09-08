@@ -7,7 +7,7 @@ from src.domain.machine import MachineStatus
 class SensorResponse(BaseModel):
     sensor_id: int | None = None
     name: str
-    tag_id: str | None = None
+    sensor_type: str | None = None
     failure_probability: float
     current_errors: list[str] = Field(default_factory=list)
     definitions: list[AlarmDefinitionResponse] = Field(default_factory=list)
