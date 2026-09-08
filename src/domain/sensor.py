@@ -1,25 +1,46 @@
 import random
 
+from domain.alarm_definition import AlarmDefinition
+
 class Sensor:
     def __init__(
             self,
             name: str,
             failure_probability: float,
             error_codes: list[str],
-            sensor_id: int | None = None
+            sensor_id: int | None = None,
+            tag_id: str | None = None,
+            definitions: list[AlarmDefinition] | None = None,
     ):
         self.sensor_id = sensor_id
         self.name = name
         self.failure_probability = failure_probability
         self.error_codes = error_codes
-        self.current_errors : set[str] = set()
+        self.tag_id = tag_id
+        self.tag_id = tag_id
+        # Conservado para compatibilidad; el modo periódico no utiliza probabilidad.
+        self.failure_probability = failure_probability
+        self.definitions = list(definitions or [])
+        self.error_codes = (
+            [definition.alarm_code for definition in self.definitions]
+            if self.definitions else list(error_codes or [])
+        )
+        self.current_errors: set[str] = set()
 
-    def check_sensor(self) -> set[str]:
-        if random.random() < self.failure_probability:
-            code = random.choice(self.error_codes) if self.error_codes else 'GENERIC_ERROR'
-            if code is not None:
-                self.current_errors.add(code)
-        return self.current_errors
+        
+    @property
+    def available_definitions(self) -> list[AlarmDefinition]:
+        return [
+            definition for definition in self.definitions
+            if definition.alarm_code not in self.current_errors
+        ]
+
+    def check_sensor(self, rng=None) -> AlarmDefinition | None:
+        available = self.available_definitions
+        if not available:
+            return None
+        # Propone un fallo; el servicio confirmará la persistencia.
+        return (rng or random).choice(available)
 
     def fix(self, error_code: str | None = None):
         if error_code is None:

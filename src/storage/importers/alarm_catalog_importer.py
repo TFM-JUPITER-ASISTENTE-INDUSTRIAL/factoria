@@ -41,128 +41,45 @@ class AlarmCatalogRow:
     severity: str
     source_file: str
     source_line: int
+    component: str | None = None
 
 
 #esta función carga y valida los archivos CSV de catálogo de alarmas, asegurando que no haya duplicados ni inconsistencias en los datos.
-def load_catalog_rows(
-    directory: Path,
-) -> list[AlarmCatalogRow]:
-    csv_files = sorted(directory.glob("*.csv"))
-
-    if not csv_files:
-        raise ValueError(
-            f"No se encontraron archivos CSV en {directory}"
-        )
-
-    rows: list[AlarmCatalogRow] = []
-
-    seen_alarm_ids: dict[str, AlarmCatalogRow] = {}
-    seen_machine_codes: dict[
-        tuple[str, str],
-        AlarmCatalogRow,
-    ] = {}
-    machine_names: dict[str, str] = {}
-
-    for csv_file in csv_files:
-        with csv_file.open(
-            mode="r",
-            encoding="utf-8-sig",
-            newline="",
-        ) as file:
+def load_catalog_rows(directory: Path) -> list[AlarmCatalogRow]:
+    files = sorted(directory.glob("*.csv"))
+    if not files:
+        raise ValueError(f"No se encontraron archivos CSV en {directory}")
+    rows = []
+    alarm_ids = set()
+    machine_codes = set()
+    names = {}
+    for path in files:
+        with path.open(encoding="utf-8-sig", newline="") as file:
             reader = csv.DictReader(file)
-
-            columns = set(reader.fieldnames or [])
-            missing_columns = REQUIRED_COLUMNS - columns
-
-            if missing_columns:
-                missing = ", ".join(sorted(missing_columns))
-                raise ValueError(
-                    f"{csv_file.name}: faltan columnas: {missing}"
-                )
-
-            for line_number, raw_row in enumerate(
-                reader,
-                start=2,
-            ):
-                values = {
-                    column: (raw_row.get(column) or "").strip()
-                    for column in REQUIRED_COLUMNS
-                }
-
-                empty_columns = [
-                    column
-                    for column, value in values.items()
-                    if not value
-                ]
-
-                if empty_columns:
-                    empty = ", ".join(sorted(empty_columns))
-                    raise ValueError(
-                        f"{csv_file.name}, fila {line_number}: "
-                        f"campos vacíos: {empty}"
-                    )
-
+            missing = REQUIRED_COLUMNS - set(reader.fieldnames or [])
+            if missing:
+                raise ValueError(f"{path.name}: faltan columnas: {sorted(missing)}")
+            for line, raw in enumerate(reader, start=2):
+                values = {key: (raw.get(key) or "").strip() for key in REQUIRED_COLUMNS}
+                if not all(values.values()):
+                    raise ValueError(f"{path.name}:{line}: campos vacíos")
                 if values["severity"] not in ALLOWED_SEVERITIES:
-                    raise ValueError(
-                        f"{csv_file.name}, fila {line_number}: "
-                        f"severity desconocida: "
-                        f"{values['severity']}"
-                    )
-
-                row = AlarmCatalogRow(
-                    alarm_id=values["alarm_id"],
-                    alarm_code=values["alarm_code"],
-                    alarm_name=values["alarm_name"],
-                    machine_id=values["machine_id"],
-                    machine_name=values["machine_name"],
-                    tag_id=values["tag_id"],
-                    severity=values["severity"],
-                    source_file=csv_file.name,
-                    source_line=line_number,
-                )
-
-                previous_name = machine_names.get(row.machine_id)
-
-                if (
-                    previous_name is not None
-                    and previous_name != row.machine_name
-                ):
-                    raise ValueError(
-                        f"La máquina {row.machine_id} tiene "
-                        f"nombres diferentes: "
-                        f"{previous_name!r} y {row.machine_name!r}"
-                    )
-
-                machine_names[row.machine_id] = row.machine_name
-
-                if row.alarm_id in seen_alarm_ids:
-                    previous = seen_alarm_ids[row.alarm_id]
-                    raise ValueError(
-                        f"alarm_id duplicado {row.alarm_id}: "
-                        f"{previous.source_file}:"
-                        f"{previous.source_line} y "
-                        f"{row.source_file}:{row.source_line}"
-                    )
-
-                business_key = (
-                    row.machine_id,
-                    row.alarm_code,
-                )
-
-                if business_key in seen_machine_codes:
-                    previous = seen_machine_codes[business_key]
-                    raise ValueError(
-                        f"Alarma duplicada "
-                        f"{row.machine_id}/{row.alarm_code}: "
-                        f"{previous.source_file}:"
-                        f"{previous.source_line} y "
-                        f"{row.source_file}:{row.source_line}"
-                    )
-
-                seen_alarm_ids[row.alarm_id] = row
-                seen_machine_codes[business_key] = row
-                rows.append(row)
-
+                    raise ValueError(f"{path.name}:{line}: severity desconocida")
+                key = (values["machine_id"], values["alarm_code"])
+                if values["alarm_id"] in alarm_ids:
+                    raise ValueError(f"{path.name}:{line}: alarm_id duplicado")
+                if key in machine_codes:
+                    raise ValueError(f"{path.name}:{line}: Alarma duplicada {key}")
+                previous = names.get(values["machine_id"])
+                if previous is not None and previous != values["machine_name"]:
+                    raise ValueError(f"{path.name}:{line}: nombres diferentes para la máquina")
+                alarm_ids.add(values["alarm_id"])
+                machine_codes.add(key)
+                names[values["machine_id"]] = values["machine_name"]
+                rows.append(AlarmCatalogRow(
+                    **values, source_file=path.name, source_line=line,
+                    component=(raw.get("component") or "").strip() or None,
+                ))
     return rows
 
 
@@ -170,115 +87,154 @@ def load_catalog_rows(
 
 
 #esta función obtiene o crea una máquina en la base de datos según el external_id y el nombre proporcionados. Si la máquina no existe, se crea una nueva entrada; si existe pero el nombre es diferente, se actualiza el nombre.
-def get_or_create_machine(
-    session: Session,
-    external_id: str,
-    name: str,
-) -> tuple[MachineORM, bool]:
-    stmt = select(MachineORM).where(
-        MachineORM.external_id == external_id
-    )
-
-    machine = session.execute(
-        stmt
-    ).scalar_one_or_none()
-
-    created = False
-
+def get_or_create_machine(session: Session, external_id: str, name: str):
+    machine = session.scalar(select(MachineORM).where(MachineORM.external_id == external_id))
     if machine is None:
-        machine = MachineORM(
-            external_id=external_id,
-            name=name,
-        )
-
-        # El modelo actual espera un PLC por máquina.
-        machine.plc = PLCORM(sensors=[])
-
+        # Recupera una máquina anterior solo si su nombre coincide exactamente.
+        existing = session.scalar(select(MachineORM).where(MachineORM.name == name))
+        if existing is not None:
+            if existing.external_id not in (None, external_id):
+                raise ValueError(f"Nombre de máquina ya asociado a otro ID: {name}")
+            machine = existing
+            machine.external_id = external_id
+    created = machine is None
+    if created:
+        machine = MachineORM(external_id=external_id, name=name)
         session.add(machine)
-        session.flush()
-        created = True
-    elif machine.name != name:
-        machine.name = name
-
+    machine.name = name
+    if machine.plc is None:
+        machine.plc = PLCORM(sensors=[])
+    session.flush()
     return machine, created
 
 
+def get_or_create_sensor(session: Session, machine: MachineORM, tag_id: str):
+    sensor = session.scalar(select(SensorORM).where(
+        SensorORM.owner_id == machine.plc.id,
+        SensorORM.tag_id == tag_id,
+    ))
+    created = sensor is None
+    if created:
+        sensor = SensorORM(
+            owner=machine.plc,
+            name=tag_id,
+            tag_id=tag_id,
+            failure_probability=1.0,
+            error_codes=[],
+        )
+        session.add(sensor)
+        session.flush()
+    return sensor, created
+
 
 #esta función inserta o actualiza una definición de alarma en la base de datos. Verifica si la definición ya existe por external_alarm_id o por la combinación de machine_id y alarm_code. Si existe, actualiza los campos si es necesario; si no, crea una nueva entrada. También maneja conflictos y asegura que no se cambien las relaciones existentes.
-def upsert_alarm_definition(
-    session: Session,
-    machine: MachineORM,
-    row: AlarmCatalogRow,
-) -> str:
-    by_external_id = session.execute(
-        select(AlarmDefinitionORM).where(
-            AlarmDefinitionORM.external_alarm_id
-            == row.alarm_id
-        )
-    ).scalar_one_or_none()
-
-    by_business_key = session.execute(
-        select(AlarmDefinitionORM).where(
-            AlarmDefinitionORM.machine_id == machine.id,
-            AlarmDefinitionORM.alarm_code == row.alarm_code,
-        )
-    ).scalar_one_or_none()
-
-    if (
-        by_external_id is not None
-        and by_business_key is not None
-        and by_external_id.id != by_business_key.id
-    ):
-        raise ValueError(
-            f"Conflicto entre alarm_id {row.alarm_id} "
-            f"y la clave "
-            f"{row.machine_id}/{row.alarm_code}"
-        )
-
-    definition = by_external_id or by_business_key
-
-    if definition is None:
+def upsert_alarm_definition(session: Session, machine: MachineORM,
+                            sensor: SensorORM, row: AlarmCatalogRow) -> str:
+    by_id = session.scalar(select(AlarmDefinitionORM).where(
+        AlarmDefinitionORM.external_alarm_id == row.alarm_id,
+    ))
+    by_code = session.scalar(select(AlarmDefinitionORM).where(
+        AlarmDefinitionORM.machine_id == machine.id,
+        AlarmDefinitionORM.alarm_code == row.alarm_code,
+    ))
+    if by_id is not None and by_code is not None and by_id.id != by_code.id:
+        raise ValueError(f"Conflicto entre alarm_id y código: {row.alarm_id}")
+    definition = by_id if by_id is not None else by_code
+    created = definition is None
+    if created:
         definition = AlarmDefinitionORM(
             external_alarm_id=row.alarm_id,
             machine_id=machine.id,
             alarm_code=row.alarm_code,
-            alarm_name=row.alarm_name,
-            tag_id=row.tag_id,
-            severity=row.severity,
         )
         session.add(definition)
-        return "created"
+    else:
+        if (
+            definition.external_alarm_id != row.alarm_id
+            or definition.machine_id != machine.id
+            or definition.alarm_code != row.alarm_code
+        ):
+            raise ValueError(f"Identidad de alarma incompatible: {row.alarm_id}")
+        if definition.sensor_id is not None and (
+            definition.sensor_id != sensor.id or definition.tag_id != row.tag_id
+        ):
+            raise ValueError(
+                f"{row.alarm_id}: cambiar de sensor/tag requiere una migración explícita"
+            )
 
-    # No permitimos mover un alarm_id a otra máquina o código.
-    if (
-        definition.machine_id != machine.id
-        or definition.alarm_code != row.alarm_code
-    ):
-        raise ValueError(
-            f"{row.alarm_id} ya está relacionado con "
-            f"otra máquina o código"
-        )
+    values = {
+        "alarm_name": row.alarm_name,
+        "tag_id": row.tag_id,
+        "severity": row.severity,
+        "component": row.component,
+        "sensor_id": sensor.id,
+    }
+    changed = any(getattr(definition, key) != value for key, value in values.items())
+    for key, value in values.items():
+        setattr(definition, key, value)
+    session.flush()
+    return "created" if created else ("updated" if changed else "unchanged")
 
-    new_values = (
-        row.alarm_name,
-        row.tag_id,
-        row.severity,
-    )
 
-    current_values = (
-        definition.alarm_name,
-        definition.tag_id,
-        definition.severity,
-    )
 
-    if new_values == current_values:
-        return "unchanged"
 
-    definition.alarm_name = row.alarm_name
-    definition.tag_id = row.tag_id
-    definition.severity = row.severity
+#esta función importa los catálogos de alarmas desde los archivos CSV en el directorio especificado. Valida los datos, crea o actualiza máquinas y definiciones de alarmas según sea necesario, y devuelve un resumen de la operación.
+def import_alarm_catalogs(session: Session, directory: Path) -> dict[str, int]:
+    rows = load_catalog_rows(directory)
+    result = {
+        "files": len(list(directory.glob("*.csv"))), "rows": len(rows),
+        "machines_created": 0, "sensors_created": 0,
+        "definitions_created": 0, "definitions_updated": 0,
+        "definitions_unchanged": 0,
+    }
+    machines = {}
+    for row in rows:
+        if row.machine_id not in machines:
+            machine, created = get_or_create_machine(session, row.machine_id, row.machine_name)
+            machines[row.machine_id] = machine
+            result["machines_created"] += int(created)
+        machine = machines[row.machine_id]
+        sensor, created = get_or_create_sensor(session, machine, row.tag_id)
+        result["sensors_created"] += int(created)
+        status = upsert_alarm_definition(session, machine, sensor, row)
+        result[f"definitions_{status}"] += 1
 
-    return "updated"
+    # error_codes se conserva como compatibilidad, derivado del catálogo.
+    # El simulador usa las relaciones, no este ARRAY como fuente independiente.
+    for machine in machines.values():
+        for sensor in machine.plc.sensors:
+            if sensor.tag_id is not None:
+                sensor.error_codes = list(session.scalars(
+                    select(AlarmDefinitionORM.alarm_code)
+                    .where(AlarmDefinitionORM.sensor_id == sensor.id)
+                    .order_by(AlarmDefinitionORM.alarm_code)
+                ))
+    session.flush()
+
+    # Solo completar enlaces inequívocos de eventos YA vinculados a una definición.
+    # No tocar sensores existentes ni adivinar el origen de códigos antiguos.
+    linked = session.execute(text("""
+        UPDATE alarms AS event
+        SET sensor_id = definition.sensor_id
+        FROM alarm_definitions AS definition
+        WHERE event.alarm_definition_id = definition.id
+          AND event.sensor_id IS NULL
+          AND definition.sensor_id IS NOT NULL
+          AND event.machine_id = definition.machine_id
+          AND event.error_code = definition.alarm_code
+          AND (
+            event.status <> 'ACTIVE'
+            OR NOT EXISTS (
+              SELECT 1 FROM alarms AS other
+              WHERE other.id <> event.id
+                AND other.sensor_id = definition.sensor_id
+                AND other.error_code = event.error_code
+                AND other.status = 'ACTIVE'
+            )
+          )
+    """))
+    result["events_linked"] = linked.rowcount
+    return result
 
 
 
@@ -332,43 +288,21 @@ def import_alarm_catalogs(
 # para validar los datos sin realizar cambios en la base de datos. Se encarga de manejar la sesión de la base de datos y mostrar un resumen del resultado de la importación.
 if __name__ == "__main__":
     import argparse
-
     from src.storage.connectors.postgresql import SessionLocal
 
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "directory",
-        type=Path,
-        nargs="?",
-        default=Path("data/alarm_catalogs"),
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-    )
-
+    parser.add_argument("directory", type=Path, nargs="?", default=Path("data/alarm_catalogs"))
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-
-    session = SessionLocal()
-
-    try:
-        result = import_alarm_catalogs(
-            session=session,
-            directory=args.directory,
-        )
-
-        if args.dry_run:
+    with SessionLocal() as session:
+        try:
+            result = import_alarm_catalogs(session, args.directory)
+            if args.dry_run:
+                session.rollback()
+            else:
+                session.commit()
+            print(result)
+            print("Sin cambios guardados" if args.dry_run else "Importación completada")
+        except Exception:
             session.rollback()
-            print("Validación correcta. No se guardaron cambios.")
-        else:
-            session.commit()
-            print("Importación completada.")
-
-        for key, value in result.items():
-            print(f"{key}: {value}")
-
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+            raise

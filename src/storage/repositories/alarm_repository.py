@@ -1,10 +1,9 @@
 from datetime import datetime, timezone
-from typing import Optional
 
-from sqlalchemy import select, func
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, joinedload
 
 from src.Exceptions.database_exception import DatabaseException
 from src.domain.alarm import Alarm, AlarmStatus
@@ -15,141 +14,109 @@ class AlarmRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    @staticmethod
+    def _query():
+        return select(AlarmORM).options(
+            joinedload(AlarmORM.definition),
+            joinedload(AlarmORM.machine),
+            joinedload(AlarmORM.sensor),
+        ).execution_options(populate_existing=True)
+
     def save(self, alarms: list[Alarm]) -> int:
         if not alarms:
             return 0
         stmt = insert(AlarmORM).values([
             {
-                "sensor_id": a.sensor_id,
-                "machine_id": a.machine_id,
-                "error_code" : a.error_code,
-                "status" : a.status.value,
-                "triggered_at" : a.triggered_at,
-                "resolved_at" : a.resolved_at,
-                "alarm_definition_id" : a.alarm_definition_id,
-                "raw_payload" : a.raw_payload,
+                "sensor_id": alarm.sensor_id, "machine_id": alarm.machine_id,
+                "error_code": alarm.error_code, "status": alarm.status.value,
+                "triggered_at": alarm.triggered_at, "resolved_at": alarm.resolved_at,
+                "alarm_definition_id": alarm.alarm_definition_id,
+                "raw_payload": alarm.raw_payload,
             }
-            for a in alarms
+            for alarm in alarms
         ]).on_conflict_do_nothing().returning(AlarmORM.id)
-
         try:
-            result = self.session.execute(stmt)
+            ids = self.session.execute(stmt).scalars().all()
             self.session.commit()
-            return len(result.all())
-        except SQLAlchemyError as e:
+            return len(ids)
+        except SQLAlchemyError as error:
             self.session.rollback()
-            raise DatabaseException(
-                message="Error al guardar alarmas.",
-                original_exception=e)
+            raise DatabaseException("Error al guardar alarmas", original_exception=error)
 
-    def get_by_id(self, alarm_id: int) -> Optional[Alarm]:
-        stmt = select(AlarmORM).where(AlarmORM.id == alarm_id)
-        alarm_db = self.session.execute(stmt).scalar_one_or_none()
-        if alarm_db is None:
-            return None
-        return self._to_domain(alarm_db)
+    def get_by_id(self, alarm_id: int) -> Alarm | None:
+        row = self.session.scalar(self._query().where(AlarmORM.id == alarm_id))
+        return self._to_domain(row) if row is not None else None
 
-    def list_all(self,
-                 status: Optional[AlarmStatus] = None,
-                 machine_id: Optional[int] = None
-                 ) -> list[Alarm]:
-        stmt = select(AlarmORM)
+    def list_all(self, status: AlarmStatus | None = None,
+                 machine_id: int | None = None) -> list[Alarm]:
+        stmt = self._query().order_by(AlarmORM.triggered_at.desc(), AlarmORM.id.desc())
         if status is not None:
             stmt = stmt.where(AlarmORM.status == status)
         if machine_id is not None:
             stmt = stmt.where(AlarmORM.machine_id == machine_id)
-
-        alarms_db = self.session.execute(stmt).scalars().all()
-        return [self._to_domain(alarm_db) for alarm_db in alarms_db]
+        return [self._to_domain(row) for row in self.session.scalars(stmt)]
 
     def list_active(self) -> list[Alarm]:
         return self.list_all(status=AlarmStatus.ACTIVE)
 
     def count_active(self) -> int:
-        stmt = select(func.count(AlarmORM.id)).where(AlarmORM.status == AlarmStatus.ACTIVE)
-        count = self.session.execute(stmt).scalar()
-        return count or 0
-
-    def resolve_alarm(self, alarm_id: int) -> Optional[Alarm]:
-        stmt = select(AlarmORM).where(AlarmORM.id == alarm_id)
-        alarm_db = self.session.execute(stmt).scalar_one_or_none()
-        if alarm_db is None:
-            return None
-        alarm_db.status = AlarmStatus.SOLVED
-        alarm_db.resolved_at = datetime.now(timezone.utc)
-        try:
-            self.session.commit()
-            self.session.refresh(alarm_db)
-            return self._to_domain(alarm_db)
-        except SQLAlchemyError as e:
-            self.session.rollback()
-            raise DatabaseException(
-                message=f"Error al resolver la alarma {alarm_id}.",
-                original_exception=e
-            )
-
-    def _to_domain(self, alarm_db: AlarmORM) -> Alarm:
-        return Alarm(
-            sensor_id=alarm_db.sensor_id,
-            machine_id=alarm_db.machine_id,  # ← nueva
-            error_code=alarm_db.error_code,
-            status=alarm_db.status,
-            triggered_at=alarm_db.triggered_at,
-            resolved_at=alarm_db.resolved_at,
-            alarm_id=alarm_db.id,
-            alarm_definition_id=alarm_db.alarm_definition_id,
-            raw_payload=alarm_db.raw_payload,
-        )
-
-    def get_active_by_definition(
-        self,
-        alarm_definition_id: int,
-    ) -> Optional[Alarm]:
-        stmt = select(AlarmORM).where(
-            AlarmORM.alarm_definition_id
-            == alarm_definition_id,
+        return self.session.scalar(select(func.count(AlarmORM.id)).where(
             AlarmORM.status == AlarmStatus.ACTIVE,
-        )
+        )) or 0
 
-        alarm_db = self.session.execute(
-            stmt
-        ).scalar_one_or_none()
-
-        if alarm_db is None:
-            return None
-
-        return self._to_domain(alarm_db)
-
-    def resolve_active_by_definition(
-        self,
-        alarm_definition_id: int,
-    ) -> Optional[Alarm]:
-        stmt = select(AlarmORM).where(
-            AlarmORM.alarm_definition_id
-            == alarm_definition_id,
+    def get_active_by_definition(self, alarm_definition_id: int) -> Alarm | None:
+        row = self.session.scalar(self._query().where(
+            AlarmORM.alarm_definition_id == alarm_definition_id,
             AlarmORM.status == AlarmStatus.ACTIVE,
+        ))
+        return self._to_domain(row) if row is not None else None
+
+    def resolve_alarm(self, alarm_id: int) -> Alarm | None:
+        # Bloquear solo la fila del evento, sin bloquear los LEFT JOIN del catálogo.
+        row = self.session.scalar(
+            select(AlarmORM).where(AlarmORM.id == alarm_id)
+            .with_for_update().execution_options(populate_existing=True)
         )
-
-        alarm_db = self.session.execute(
-            stmt
-        ).scalar_one_or_none()
-
-        if alarm_db is None:
+        if row is None:
             return None
+        return self._resolve(row)
 
-        alarm_db.status = AlarmStatus.SOLVED
-        alarm_db.resolved_at = datetime.now(timezone.utc)
+    def resolve_active_by_definition(self, alarm_definition_id: int) -> Alarm | None:
+        row = self.session.scalar(
+            select(AlarmORM).where(
+                AlarmORM.alarm_definition_id == alarm_definition_id,
+                AlarmORM.status == AlarmStatus.ACTIVE,
+            ).with_for_update().execution_options(populate_existing=True)
+        )
+        return self._resolve(row) if row is not None else None
 
+    def _resolve(self, row: AlarmORM) -> Alarm:
         try:
+            alarm_id = row.id
+            if row.status != AlarmStatus.SOLVED:
+                row.status = AlarmStatus.SOLVED
+                row.resolved_at = datetime.now(timezone.utc)
+            # Incluso si ya estaba resuelta, libera el bloqueo sin cambiar la fecha.
             self.session.commit()
-            self.session.refresh(alarm_db)
-            return self._to_domain(alarm_db)
+            return self.get_by_id(alarm_id)
         except SQLAlchemyError as error:
             self.session.rollback()
-            raise DatabaseException(
-                message=(
-                    "Error al resolver la alarma activa "
-                    f"de la definición {alarm_definition_id}."
-                ),
-                original_exception=error,
-            )
+            raise DatabaseException("Error al resolver alarma", original_exception=error)
+
+    @staticmethod
+    def _to_domain(row: AlarmORM) -> Alarm:
+        definition = row.definition
+        return Alarm(
+            alarm_id=row.id, sensor_id=row.sensor_id,
+            machine_id=row.machine_id, error_code=row.error_code,
+            status=row.status, triggered_at=row.triggered_at, resolved_at=row.resolved_at,
+            alarm_definition_id=row.alarm_definition_id, raw_payload=row.raw_payload,
+            machine_name=row.machine.name if row.machine else None,
+            machine_external_id=row.machine.external_id if row.machine else None,
+            sensor_name=row.sensor.name if row.sensor else None,
+            external_alarm_id=definition.external_alarm_id if definition else None,
+            alarm_name=definition.alarm_name if definition else None,
+            tag_id=definition.tag_id if definition else None,
+            severity=definition.severity if definition else None,
+            component=definition.component if definition else None,
+        )
