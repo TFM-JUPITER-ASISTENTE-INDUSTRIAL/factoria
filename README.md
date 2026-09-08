@@ -1,72 +1,102 @@
 # FactorIA 🏭
 
-FactorIA es una plataforma industrial en Python diseñada bajo los principios de **Arquitectura Limpia (Clean Architecture)** y **Diseño Guiado por el Dominio (DDD)**. Simula la monitorización y control en tiempo real de una planta industrial de máquinas con autómatas programables (PLC), sensores de diferentes tipos y probabilidades de fallo, y un servidor **API REST (FastAPI)** para consulta y gestión de alarmas.
+FactorIA es una plataforma industrial en Python que simula una planta de producción, persiste su estado en PostgreSQL y ofrece una API REST con FastAPI para consultar máquinas, sensores, catálogo de fallos y ocurrencias de alarma.
 
-El proyecto está completamente dockerizado, utiliza **PostgreSQL** para la persistencia de datos, **SQLAlchemy 2.0** como ORM, **Alembic** para el control de versiones del esquema de base de datos y **uv** para la gestión ultrarrápida de paquetes.
+El proyecto sigue una separación por capas inspirada en Clean Architecture y DDD:
 
----
+- `domain`: máquinas, PLC, sensores y alarmas sin dependencias de HTTP.
+- `services`: casos de uso, como activar o resolver una alarma.
+- `storage`: modelos SQLAlchemy, repositorios, importadores y seed.
+- `api`: rutas FastAPI y schemas Pydantic.
+- `alembic`: evolución versionada del esquema PostgreSQL.
 
-## 🏗️ Arquitectura del Proyecto
+## Estado actual
 
-El sistema desacopla estrictamente las reglas de negocio de la tecnología de persistencia y de la capa de entrega (HTTP / API):
+Los cinco CSV versionados en `data/alarm_catalogs/` producen:
 
-```text
-factorIA/
-├── alembic/                      # Configuraciones y versiones de migración de la Base de Datos
-├── src/
-│   ├── api/                      # Capa de Entrada / Entrega HTTP (FastAPI)
-│   │   ├── dependencies.py       # Inyección de dependencias (Sesión de BD con yield)
-│   │   ├── main.py               # Instancia de FastAPI, middlewares (CORS) y registro de routers
-│   │   ├── routes/               # Controladores / Endpoints REST
-│   │   │   ├── alarms.py         # Endpoints para /alarms y resolución de incidencias
-│   │   │   ├── machines.py       # Endpoints para /machines y detalle de sensores
-│   │   │   └── status.py         # Endpoint para /status (resumen ejecutivo de planta)
-│   │   └── schemas/              # DTOs / Modelos Pydantic v2 (Validación y serialización)
-│   │       ├── alarm_schema.py
-│   │       ├── machine_schema.py
-│   │       └── status_schema.py
-│   ├── config/                   # Configuración global (Logger, etc.)
-│   │   └── logger.py
-│   ├── domain/                   # Capa de Dominio (Reglas de negocio puras e independientes)
-│   │   ├── alarm.py              # Entidad Alarm y enumeración AlarmStatus (ACTIVE, SOLVED)
-│   │   ├── machine.py            # Entidad Machine y MachineStatus (ONLINE, ERROR, MAINTENANCE)
-│   │   ├── plc.py                # Entidad PLC (colector de sensores)
-│   │   └── sensor.py             # Sensor base, implementaciones especializadas y SensorFactory
-│   ├── Exceptions/               # Excepciones personalizadas de dominio e infraestructura
-│   │   ├── database_exception.py
-│   │   └── plc_exception.py
-│   ├── storage/                  # Capa de Persistencia (Infraestructura de datos)
-│   │   ├── connectors/           # Conexión SQLAlchemy a PostgreSQL (Engine / SessionLocal)
-│   │   │   └── postgresql.py
-│   │   ├── entities/             # Modelos ORM de SQLAlchemy
-│   │   │   ├── alarm_orm.py
-│   │   │   ├── machine_orm.py
-│   │   │   ├── plc_orm.py
-│   │   │   └── sensor_orm.py
-│   │   ├── repositories/         # Patrón Repository (Mapeo BD <-> Dominio enriquecido)
-│   │   │   ├── alarm_repository.py
-│   │   │   └── machine_repository.py
-│   │   └── seed/                 # Script de semillas para poblar la BD inicial
-│   │       └── seed.py
-│   └── app.py                    # Orquestador del bucle de simulación en segundo plano
-├── tests/                        # Suite de pruebas automatizadas con pytest
-│   └── test_machine.py
-├── Dockerfile                    # Empaquetado optimizado con 'uv'
-├── docker-compose.yml            # Orquestación de 3 servicios (db, simulator, api)
-├── main.py                       # Punto de entrada del proceso de simulación
-└── pyproject.toml                # Gestión de dependencias del proyecto
+| Recurso | Cantidad |
+| --- | ---: |
+| Máquinas | 5 |
+| PLC | 5 |
+| Sensores agrupados | 81 |
+| Definiciones de alarma | 165 |
+
+El simulador genera una nueva ocurrencia válida cada 10 segundos. Para ello vuelve a leer el estado de PostgreSQL, elige un sensor con fallos disponibles y selecciona una de sus definiciones no activas. La API permite consultar y resolver las ocurrencias.
+
+## Sensores obtenidos del catálogo
+
+Los sensores ya no se clasifican mediante una lista manual de tipos neumáticos, eléctricos o software. El importador obtiene `sensor_type` del penúltimo segmento de `tag_id`:
+
+```python
+sensor_type = tag_id.split(".")[-2]
 ```
 
----
+Ejemplos:
 
-## 🗄️ Esquema de Base de Datos
+| `tag_id` | `sensor_type` |
+| --- | --- |
+| `PONTIA.LACO01.DENE01.STACK.LEVEL_LOW` | `STACK` |
+| `PONTIA.LACO01.DENE01.STACK.EMPTY` | `STACK` |
+| `PONTIA.LACO01.DENE01.AXIS_Z.SERVO_FAULT` | `AXIS_Z` |
+| `PONTIA.LACO01.ENCA01.ROBOT.COLLISION_DETECTED` | `ROBOT` |
 
-El diseño de base de datos relacional en PostgreSQL sigue el siguiente esquema entidad-relación:
+`sensor_id` es la clave numérica asignada por PostgreSQL. Un mismo tipo en máquinas diferentes tiene IDs distintos porque la agrupación se realiza por `PLC + sensor_type`.
+
+Por ejemplo, el sensor `STACK` de Denester tiene un único `sensor_id` y estas definiciones:
+
+- `DEN-0004`: `STACK.LEVEL_LOW`.
+- `DEN-0005`: `STACK.EMPTY`.
+- `DEN-0021`: `STACK.CHAIN_WEAR_DETECTED`.
+
+El número de sensores por máquina es:
+
+| Máquina | ID externo | Sensores | Definiciones |
+| --- | --- | ---: | ---: |
+| Denester | `DENESTER-01` | 15 | 30 |
+| Encajadora | `ENCAJADORA-01` | 16 | 30 |
+| Estuchadora | `ESTUCHADORA-01` | 19 | 35 |
+| Serializadora | `SERIALIZADORA-01` | 14 | 35 |
+| Termoformadora | `TERMOFORMADORA-01` | 17 | 35 |
+| **Total** |  | **81** | **165** |
+
+## Flujo de una alarma
+
+```text
+CSV
+ ↓
+Machine → PLC → Sensor agrupado → AlarmDefinition
+                                  ↓
+App selecciona un fallo disponible cada 10 s
+                                  ↓
+AlarmEventService valida máquina, sensor, código y tag
+                                  ↓
+Alarm ACTIVE guardada en PostgreSQL
+                                  ↓
+API consulta o resuelve mediante PATCH
+```
+
+`alarm_definitions` y `alarms` representan conceptos diferentes:
+
+- `alarm_definitions` es el catálogo de fallos posibles.
+- `alarms` es el histórico de las veces que esos fallos ocurrieron.
+
+Una definición puede tener muchas ocurrencias históricas, pero PostgreSQL impide que existan dos ocurrencias activas simultáneas de la misma definición. Al resolver una alarma se conserva el registro con estado `SOLVED` y `resolved_at`; la misma definición puede volver a ocurrir más adelante con otro `alarm_id`.
+
+## Modelo de datos
 
 ```mermaid
 erDiagram
+    machines ||--|| plcs : tiene
+    plcs ||--o{ sensors : contiene
+    machines ||--o{ alarm_definitions : cataloga
+    sensors ||--o{ alarm_definitions : agrupa
+    alarm_definitions ||--o{ alarms : origina
+    machines ||--o{ alarms : registra
+    sensors ||--o{ alarms : detecta
+
     machines {
         integer id PK
+        string external_id UK
         string name UK
     }
     plcs {
@@ -75,141 +105,264 @@ erDiagram
     }
     sensors {
         integer id PK
-        string name
         integer owner_id FK
-        float failure_probability
+        string name
+        string sensor_type
+        string tag_id "compatibilidad"
         varchar_array error_codes
+        float failure_probability
+    }
+    alarm_definitions {
+        integer id PK
+        string external_alarm_id UK
+        integer machine_id FK
+        integer sensor_id FK
+        string alarm_code
+        string alarm_name
+        string tag_id
+        string component
+        string severity
     }
     alarms {
         integer id PK
-        integer sensor_id FK
         integer machine_id FK
+        integer sensor_id FK
+        integer alarm_definition_id FK
         string error_code
         string status
         timestamp triggered_at
         timestamp resolved_at
+        jsonb raw_payload
     }
-
-    machines ||--|| plcs : "Tiene un (1:1)"
-    plcs ||--o{ sensors : "Contiene varios (1:N)"
-    machines ||--o{ alarms : "Registra (1:N)"
-    sensors ||--o{ alarms : "Dispara (1:N)"
 ```
 
-### 📋 Descripción de Tablas
-* **`machines`**: Guarda las máquinas de la planta con nombre único indexado.
-* **`plcs`**: Registra los autómatas de control (relación 1:1 con `machines`).
-* **`sensors`**: Sensores asociados al PLC (relación 1:N). Guarda probabilidad de fallo y lista de códigos de error (`ARRAY`).
-* **`alarms`**: Registra las alarmas generadas en la planta con fecha de disparo y resolución. Posee un **índice parcial único** (`sensor_id`, `error_code` WHERE `status = 'ACTIVE'`) que previene duplicados mientras una alarma siga activa.
+La restricción `UNIQUE(owner_id, sensor_type)` garantiza un solo grupo del mismo tipo dentro de cada PLC. La identidad de negocio de una definición se protege con `UNIQUE(machine_id, alarm_code)` y `external_alarm_id` también es único.
 
----
+## API REST
 
-## 🌐 API REST (FastAPI)
+Con el proyecto arrancado:
 
-La aplicación incluye un servidor API REST de alto rendimiento con documentación OpenAPI interactiva:
+- Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
+- ReDoc: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
-* **Swagger UI (Interactivo)**: [http://localhost:8000/docs](http://localhost:8000/docs)
-* **ReDoc (Documentación)**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+| Método | Endpoint | Descripción |
+| --- | --- | --- |
+| `GET` | `/status` | Contadores globales de máquinas y alarmas activas. |
+| `GET` | `/machines` | Máquinas con PLC, sensores, definiciones y errores activos. |
+| `GET` | `/machines/{machine_id}` | Detalle de una máquina por su ID interno. |
+| `GET` | `/alarm-definitions` | Catálogo; admite `machine_id` y `sensor_id`. |
+| `GET` | `/alarms` | Ocurrencias; admite `status` y `machine_id`. |
+| `GET` | `/alarms/{alarm_id}` | Detalle enriquecido de una ocurrencia. |
+| `PATCH` | `/alarms/{alarm_id}/resolve` | Cambia una ocurrencia a `SOLVED`. |
 
-### 📌 Tabla de Endpoints
+Las respuestas de alarmas incluyen máquina, sensor, `sensor_type`, definición, código, nombre, tag, componente, severidad y fechas.
 
-| Método | Endpoint | Descripción | Parámetros / Filtros |
-| :---: | :--- | :--- | :--- |
-| `GET` | `/status` | Resumen global del estado de la planta y contador de alarmas | Ninguno |
-| `GET` | `/machines` | Lista todas las máquinas con su estado (`ONLINE`/`ERROR`) y sensores | Ninguno |
-| `GET` | `/machines/{machine_id}` | Obtiene el detalle de una máquina específica por su ID | `machine_id: int` |
-| `GET` | `/alarms` | Lista las alarmas de la factoría | `status: Optional[AlarmStatus]`, `machine_id: Optional[int]` |
-| `GET` | `/alarms/{alarm_id}` | Detalle de una alarma específica por su ID | `alarm_id: int` |
-| `PATCH` | `/alarms/{alarm_id}/resolve` | Resuelve una alarma activa (`SOLVED`) asignando la marca temporal actual | `alarm_id: int` |
+Si Docker se ejecuta en una máquina remota mediante SSH, `localhost` en el navegador apunta al equipo local. En ese caso utiliza el hostname o IP del servidor, por ejemplo `http://luis-hp:8000/docs`, o reenvía el puerto 8000 desde la pestaña **Ports** de VS Code.
 
----
+## Arranque con Docker Compose
 
-## 🐋 Infraestructura con Docker Compose
+### 1. Configuración
 
-La solución se compone de 3 servicios aislados comunicados mediante la red interna `factoria-network`:
+```bash
+cp .env.example .env
+```
 
-1. **`db` (`factoria_db`)**: Contenedor PostgreSQL 16 Alpine con comprobación de salud (`healthcheck`) y volumen persistente (`postgres_data`).
-2. **`simulator` (`factoria_app`)**: Proceso en segundo plano que ejecuta el ciclo de simulación y monitorización continua cada segundo (`main.py`).
-3. **`api` (`factoria_api`)**: Servidor ASGI FastAPI servido con `uvicorn` en el puerto `8000:8000`.
-
-### 🔒 Variables de Entorno (`.env`)
-Las credenciales se gestionan desde un archivo local `.env` (excluido en git):
+Variables necesarias:
 
 ```env
 POSTGRES_USER=postgres
-POSTGRES_PASSWORD=tu_contrasena_segura
+POSTGRES_PASSWORD=postgres
 POSTGRES_DB=factoria
 ```
 
----
+No subas `.env` al repositorio.
 
-## 🚀 Guía de Uso Rápido
-
-Ejecuta estos comandos desde la raíz del proyecto para gestionar el ciclo de vida del ecosistema:
-
-### 1. Levantar todo el ecosistema (Migraciones + Seeds + Simulador + API)
-Los contenedores esperarán a que PostgreSQL esté listo, aplicarán las migraciones de Alembic, poblarán la base de datos si está vacía, y levantarán el simulador y la API en paralelo:
+### 2. Arrancar todo
 
 ```bash
-docker-compose up --build -d
+docker compose up --build -d
 ```
 
-### 2. Ver logs en tiempo real
-```bash
-# Ver todos los logs combinados
-docker-compose logs -f
+Servicios:
 
-# Ver únicamente los logs de la API REST
-docker-compose logs -f api
+- `db` (`factoria_db`): PostgreSQL 16 con volumen persistente y healthcheck.
+- `simulator` (`factoria_app`): aplica migraciones, ejecuta el seed e inicia la simulación.
+- `api` (`factoria_api`): expone FastAPI en el puerto 8000.
 
-# Ver únicamente los logs del simulador de planta
-docker-compose logs -f simulator
+El simulador ejecuta:
+
+```text
+alembic upgrade head
+        ↓
+python -m src.storage.seed.seed
+        ↓
+python main.py
 ```
 
-### 3. Detener el proyecto de forma segura
-Mantiene intactos los datos almacenados en PostgreSQL:
+La API espera a que PostgreSQL esté saludable. Durante una primera construcción puede necesitar unos segundos adicionales mientras el simulador termina las migraciones y la importación.
+
+### 3. Comprobar servicios y logs
 
 ```bash
-docker-compose down
+docker compose ps -a
+docker compose logs --tail=100 simulator
+docker compose logs -f api
+docker compose logs -f simulator
 ```
 
-### 4. Reinicio limpio desde cero (Borrar Base de Datos)
-Para destruir los volúmenes, tablas y registros y reiniciar la simulación con datos vírgenes:
+Un seed repetido y sin cambios debe mostrar:
 
-```bash
-docker-compose down -v
+```text
+machines_created: 0
+sensors_created: 0
+definitions_created: 0
+definitions_updated: 0
+definitions_unchanged: 165
 ```
 
----
+### 4. Detener conservando PostgreSQL
 
-## 🛠️ Desarrollo Local y Tests
-
-### Ejecutar Tests Automatizados con Pytest
 ```bash
-uv run pytest -o pythonpath=.
+docker compose down
 ```
 
-### Ejecutar la API en Local (fuera de Docker)
-Asegúrate de tener la base de datos levantada (`docker-compose up -d db`) y ejecuta:
+Para eliminar también el volumen y reconstruir desde cero:
+
 ```bash
+docker compose down -v
+```
+
+> `down -v` elimina todo el contenido de PostgreSQL. Úsalo únicamente cuando quieras borrar deliberadamente los datos.
+
+## Comprobación funcional mediante la API
+
+```bash
+curl http://127.0.0.1:8000/status
+curl http://127.0.0.1:8000/machines
+curl http://127.0.0.1:8000/alarm-definitions
+curl "http://127.0.0.1:8000/alarms?status=ACTIVE"
+```
+
+Para resolver una ocurrencia, utiliza el `alarm_id` obtenido en `/alarms`:
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/alarms/20/resolve
+```
+
+Después vuelve a consultar la máquina y `/status`. El código resuelto debe desaparecer de `current_errors`; la máquina solo estará `ONLINE` si no tiene ninguna otra alarma activa.
+
+## Migraciones y seed manuales
+
+El `head` actual de Alembic es `e83b6a912d04`.
+
+```bash
+docker compose run --rm simulator uv run alembic current
+docker compose run --rm simulator uv run alembic upgrade head
+docker compose run --rm simulator uv run python -m src.storage.seed.seed
+```
+
+Validar el catálogo sin conservar cambios:
+
+```bash
+docker compose run --rm simulator \
+  uv run python -m src.storage.importers.alarm_catalog_importer \
+  data/alarm_catalogs --dry-run
+```
+
+El importador es transaccional e idempotente: valida todos los CSV antes de confirmar, crea los registros ausentes, actualiza los modificados y no duplica los existentes.
+
+## Desarrollo local
+
+Requisitos:
+
+- Python 3.12 o superior.
+- `uv`.
+- PostgreSQL accesible mediante `DATABASE_URL`.
+
+Con PostgreSQL de Docker activo:
+
+```bash
+export DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/factoria"
+uv run alembic upgrade head
+uv run python -m src.storage.seed.seed
 uv run uvicorn src.api.main:app --reload --port 8000
 ```
 
-### Generar y Aplicar Migraciones de Base de Datos (Alembic)
-```bash
-# Generar una nueva migración autogenerada por cambios en entities/
-export $(grep -v '^#' .env | xargs) && DATABASE_URL=postgresql+psycopg://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:5432/$POSTGRES_DB uv run alembic revision --autogenerate -m "Descripción del cambio"
+En otra terminal, para ejecutar el simulador:
 
-# Aplicar migraciones pendientes
-export $(grep -v '^#' .env | xargs) && DATABASE_URL=postgresql+psycopg://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:5432/$POSTGRES_DB uv run alembic upgrade head
+```bash
+export DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/factoria"
+uv run main.py
 ```
 
----
+## Pruebas y CI
 
-## 🌱 Semillas Iniciales (Seeds)
-Al arrancar por primera vez, el script `src/storage/seed/seed.py` inserta automáticamente las 4 máquinas base de la factoría con sus configuraciones de sensores:
+La suite contiene 34 pruebas unitarias y no necesita una DDBB. Comprueba:
 
-* **`Turbine-A`**: 1 Sensor Neumático (Probabilidad de fallo: `1%`).
-* **`Compressor-B`**: 1 Sensor Neumático (`1%`) y 1 Sensor Eléctrico (`2%`).
-* **`Robotic-Harm-C`**: 1 Sensor Neumático (`1%`), 1 Sensor Eléctrico (`2%`) y 1 PLC de Software (`5%`).
-* **`Transport-D`**: 1 Sensor Eléctrico (`2%`) y 1 PLC de Software (`5%`).
+- Contrato de los cinco CSV.
+- 165 definiciones y 81 grupos.
+- Códigos `STACK` de Denester.
+- Extracción y validación de `sensor_type`.
+- Selección de fallos asociados y todavía no activos.
+- Activación, deduplicación, validación y resolución.
+- Intervalo del simulador sin esperas reales.
+- Recarga del estado después de una resolución externa.
+- Configuración de relaciones SQLAlchemy.
+
+Ejecución equivalente al workflow de GitHub Actions:
+
+```bash
+DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/factoria_test" \
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+PYTHONPATH=. \
+uv run pytest -q
+```
+
+La URL es necesaria para construir el engine durante los imports. Las pruebas usan dobles y no intentan conectarse a ella. El workflow `.github/workflows/ci.yml` ejecuta la suite en cada pull request.
+
+La comprobación de PostgreSQL se realiza funcionalmente arrancando Docker y consultando la API, separada del CI unitario.
+
+## Estructura principal
+
+```text
+factoria/
+├── .github/workflows/ci.yml
+├── alembic/versions/
+├── data/alarm_catalogs/
+├── src/
+│   ├── api/
+│   │   ├── routes/
+│   │   │   ├── alarm_definitions.py
+│   │   │   ├── alarms.py
+│   │   │   ├── machines.py
+│   │   │   └── status.py
+│   │   └── schemas/
+│   ├── domain/
+│   │   ├── alarm.py
+│   │   ├── alarm_definition.py
+│   │   ├── machine.py
+│   │   ├── plc.py
+│   │   └── sensor.py
+│   ├── services/alarm_event_service.py
+│   ├── storage/
+│   │   ├── connectors/postgresql.py
+│   │   ├── entities/
+│   │   ├── importers/alarm_catalog_importer.py
+│   │   ├── repositories/
+│   │   └── seed/seed.py
+│   └── app.py
+├── tests/
+├── docker-compose.yml
+├── Dockerfile
+├── main.py
+└── pyproject.toml
+```
+
+## Limitaciones actuales
+
+- Los CSV incluyen instrucciones de seguridad, resolución, reset, validación y perfil requerido, pero todavía no se persisten en PostgreSQL.
+- El simulador representa señales lógicas y no se comunica todavía con un PLC, MQTT u OPC-UA real.
+- Solo se admiten las severidades `ERROR` y `CRITICAL_ERROR` definidas por el importador.
+- El seed no elimina ni desactiva automáticamente una definición retirada de un CSV.
+- La API no tiene autenticación ni autorización.
+- Migraciones y seed todavía se ejecutan dentro del servicio `simulator`; no existe un servicio Compose de inicialización independiente.
