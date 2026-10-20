@@ -57,8 +57,13 @@ class MachineRepository:
             AlarmORM.machine_id.in_([row.id for row in rows]),
             AlarmORM.status == AlarmStatus.ACTIVE,
         ).execution_options(populate_existing=True)))
+
+        alarms_by_machine: dict[int, list[AlarmORM]] = {}
+        for alarm in active:
+            alarms_by_machine.setdefault(alarm.machine_id, []).append(alarm)
+
         return [
-            self._to_domain(row, [alarm for alarm in active if alarm.machine_id == row.id])
+            self._to_domain(row, alarms_by_machine.get(row.id, []))
             for row in rows
         ]
 
