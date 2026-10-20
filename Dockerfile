@@ -12,7 +12,9 @@ RUN uv sync --frozen
 # Copiamos la app y la configuración de Alembic
 COPY src/ ./src/
 COPY main.py ./
+COPY data/ ./data/
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
+
 
 CMD ["uv", "run", "main.py"]

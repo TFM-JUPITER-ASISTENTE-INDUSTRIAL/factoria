@@ -1,42 +1,49 @@
-from src.storage.connectors.postgresql import SessionLocal
-from src.storage.entities.machine_orm import MachineORM
-from src.storage.repositories.machine_repository import MachineRepository
-from src.domain.machine import Machine
-from src.domain.plc import PLC
-from src.domain.sensor import NeumaticSensor, ElectricSensor, SoftwareSensor
-
 import logging
+import os
+from pathlib import Path
+
+from src.config.logger import setup_logging
+from src.storage.connectors.postgresql import SessionLocal
+from src.storage.importers.alarm_catalog_importer import (
+    import_alarm_catalogs,
+)
+
 logger = logging.getLogger(__name__)
 
-def seed_database():
+
+def seed_database() -> None:
+    """Importa el catalogo real de maquinas y alarmas desde CSV."""
+    catalog_directory = Path(
+        os.getenv(
+            "ALARM_CATALOG_DIR",
+            "data/alarm_catalogs",
+        )
+    )
+
     session = SessionLocal()
-    repo = MachineRepository(session)
 
-    # 1. Comprobamos si la base de datos ya tiene máquinas
-    machine_count = session.query(MachineORM).count()
-    if machine_count > 0:
-        print(f"La BD ya tiene {machine_count} maquinas. Seed omitido.")
-        return
+    try:
+        result = import_alarm_catalogs(
+            session=session,
+            directory=catalog_directory,
+        )
 
-    # 2. Definimos las máquinas por defecto
-    machines_to_seed = [
-        Machine(
-            name="Turbine-A",
-            plc=PLC(sensors=[NeumaticSensor()])),
-        Machine(name="Compressor-B",
-                plc=PLC(sensors=[NeumaticSensor(), ElectricSensor()])),
-        Machine(name="Robotic-Harm-C",
-                plc=PLC(sensors=[NeumaticSensor(), ElectricSensor(), SoftwareSensor()])),
-        Machine(name="Transport-D", plc=PLC(sensors=[ElectricSensor(), SoftwareSensor()]))
-    ]
-    logger.info("Poblando la base de datos con las máquinas iniciales...")
+        session.commit()
 
-    # 3. Guardamos cada máquina usando el repositorio
-    for machine in machines_to_seed:
-        repo.save(machine)
+        logger.info(
+            "Catálogo importado: %s",
+            result,
+        )
+    except Exception:
+        session.rollback()
+        logger.exception(
+            "No se pudo importar el catálogo de alarmas"
+        )
+        raise
+    finally:
+        session.close()
 
-    logger.info("¡Base de datos poblada con éxito!")
-    session.close()
 
 if __name__ == "__main__":
+    setup_logging()
     seed_database()

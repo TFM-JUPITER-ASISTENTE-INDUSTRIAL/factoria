@@ -1,26 +1,31 @@
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-import enum
+from enum import Enum
 
 
-class AlarmStatus(enum.Enum):
+class AlarmStatus(Enum):
     ACTIVE = "ACTIVE"
     SOLVED = "SOLVED"
 
+
+@dataclass
 class Alarm:
-    def __init__(
-            self,
-            sensor_id : int | None,
-            error_code : str,
-            status=AlarmStatus.ACTIVE,
-            machine_id: int | None = None,
-            triggered_at: datetime | None = None,
-            resolved_at: datetime | None = None,
-            alarm_id: int | None = None,
-    ):
-        self.alarm_id = alarm_id
-        self.sensor_id = sensor_id
-        self.error_code = error_code
-        self.status = status
-        self.machine_id = machine_id
-        self.triggered_at = triggered_at or datetime.now(timezone.utc)
-        self.resolved_at = resolved_at
+    sensor_id: int | None
+    error_code: str
+    status: AlarmStatus = AlarmStatus.ACTIVE
+    machine_id: int | None = None
+    triggered_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    resolved_at: datetime | None = None
+    alarm_id: int | None = None
+    alarm_definition_id: int | None = None
+    raw_payload: dict[str, object] | None = None
+    # Datos de lectura del catálogo; no se duplican en la tabla alarms.
+    machine_name: str | None = None
+    machine_external_id: str | None = None
+    sensor_name: str | None = None
+    external_alarm_id: str | None = None
+    alarm_name: str | None = None
+    tag_id: str | None = None
+    severity: str | None = None
+    component: str | None = None
+    sensor_type: str | None = None
